@@ -1,5 +1,7 @@
 # Project Potato
 
+[![CI](https://github.com/mehmetalitarin/project-potato/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmetalitarin/project-potato/actions/workflows/ci.yml)
+
 A local-first, voice-controlled personal assistant for macOS, designed
 security-first. The language model runs on your own machine through
 [Ollama](https://ollama.com), and it is never allowed to control the computer
@@ -15,7 +17,8 @@ tooling configuration and smoke tests.
 | Area | State |
 | --- | --- |
 | Project setup, linting, typing, tests | Done |
-| Continuous integration and repository protection | Next |
+| Continuous integration, dependency audit, secret scanning | Done |
+| Threat model and security documentation | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
@@ -72,9 +75,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+pre-commit install     # run secret scanning and linting on every commit
 ```
 
-No administrator rights are required for any of this.
+No administrator rights are required for any of this. The first commit after
+`pre-commit install` takes a minute while the hooks are set up.
 
 ## Checks
 
@@ -83,7 +88,19 @@ ruff check .            # lint, including security rules
 ruff format --check .   # formatting
 mypy                    # strict static typing
 pytest                  # tests
+pip-audit --skip-editable   # known vulnerabilities in installed packages
+pre-commit run --all-files  # every hook, including Gitleaks
 ```
+
+## Repository security
+
+- CI runs on Ubuntu and on Apple silicon macOS, for Python 3.12 and 3.13.
+- Workflows have read-only permissions, and every third-party action is
+  pinned to a full commit SHA. Tests in `tests/test_repository_security.py`
+  fail if either protection is removed.
+- Gitleaks scans every commit locally (pre-commit) and the full history in CI.
+- Dependabot proposes updates for Python packages and for the pinned actions.
+- `main` is protected: changes arrive through pull requests only.
 
 Run the scaffold itself:
 
