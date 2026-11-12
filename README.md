@@ -10,15 +10,17 @@ manager.
 
 ## Status
 
-**Pre-alpha: project scaffold only.** Nothing in the feature list below is
-implemented yet. This repository currently contains the package structure,
-tooling configuration and smoke tests.
+**Pre-alpha: project scaffold and design documents only.** Nothing in the
+feature list below is implemented yet. This repository currently contains
+the package structure, tooling configuration, security documentation and
+tests.
 
 | Area | State |
 | --- | --- |
 | Project setup, linting, typing, tests | Done |
 | Continuous integration, dependency audit, secret scanning | Done |
-| Threat model and security documentation | Next |
+| Threat model and security documentation | Done |
+| Configuration with loopback-only validation | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
@@ -58,8 +60,22 @@ application is secure.
 - **External content is data.** Calendar text, API responses and anything
   else from outside can never become instructions.
 
-No software is impossible to attack. Known limitations will be documented in
-`docs/threat_model.md` as they are identified.
+No software is impossible to attack. The known limits of this design are
+written down in the [threat model](docs/threat_model.md), including what is
+deliberately out of scope.
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [Threat model](docs/threat_model.md) | What Potato defends against, what it does not, and the status of each defence |
+| [Architecture](docs/architecture.md) | Components, trust boundaries and the rules CI will enforce |
+| [Permissions](docs/permissions.md) | What the permission manager guarantees, risk levels and physical approval |
+| [Security policy](SECURITY.md) | How to report a vulnerability privately |
+| [Contributing](CONTRIBUTING.md) | Branch, pull request and merge workflow, and the security rules for changes |
+
+These are design documents. Each one marks clearly what exists today and
+what is planned.
 
 ## Requirements
 
@@ -79,7 +95,9 @@ pre-commit install     # run secret scanning and linting on every commit
 ```
 
 No administrator rights are required for any of this. The first commit after
-`pre-commit install` takes a minute while the hooks are set up.
+`pre-commit install` takes a minute while the hooks are set up. If
+`python3 --version` reports something older than 3.12, use `python3.12` in
+the first line instead.
 
 ## Checks
 
@@ -100,7 +118,8 @@ pre-commit run --all-files  # every hook, including Gitleaks
   fail if either protection is removed.
 - Gitleaks scans every commit locally (pre-commit) and the full history in CI.
 - Dependabot proposes updates for Python packages and for the pinned actions.
-- `main` is protected: changes arrive through pull requests only.
+- `main` is protected: changes arrive through pull requests only, and all
+  six CI checks must pass before a merge.
 
 Run the scaffold itself:
 
@@ -119,6 +138,7 @@ src/potato/
     voice/          microphone, wake word, speech-to-text, text-to-speech
     storage/        local SQLite database
     ui/             PySide6 desktop interface
+docs/               threat model, architecture, permissions
 tests/
 ```
 
