@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "potato-assistant"
+dynamic = ["version"]
+description = "Potato: a local-first, voice-controlled personal assistant built security-first."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Mehmet Ali Tarin" }]
+keywords = ["assistant", "local-llm", "ollama", "macos", "security"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: MacOS X",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+    # PyPI rejects any upload carrying this classifier, so the project
+    # cannot be published by accident.
+    "Private :: Do Not Upload",
+]
+# Runtime dependencies are added one milestone at a time, each with a reason.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=2.4",
+    "pytest>=9.2",
+    "ruff>=0.17",
+]
+
+[project.scripts]
+potato = "potato.__main__:main"
+
+[tool.hatch.version]
+path = "src/potato/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/potato"]
+
+# --- Ruff: linting and formatting -------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # import sorting
+    "N",   # naming
+    "B",   # bugbear: likely bugs
+    "UP",  # modern Python syntax
+    "SIM", # simplifications
+    "C4",  # comprehensions
+    "PTH", # pathlib over os.path
+    "RET", # return statements
+    "RUF", # Ruff-specific checks
+    "D",   # docstrings
+    "S",   # bandit security checks: shell use, eval/exec, weak crypto, ...
+    "T20", # no print(): output goes through logging, which redacts secrets
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert and do not need full docstrings.
+"tests/**" = ["S101", "D"]
+# The command-line entry point is the one place allowed to print.
+"src/potato/__main__.py" = ["T20"]
+
+# --- mypy: static typing ----------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+
+# --- pytest -----------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+# Any warning fails the run, so problems surface early instead of scrolling by.
+filterwarnings = ["error"]
