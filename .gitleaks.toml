@@ -1,0 +1,12 @@
+# Gitleaks configuration, used by the pre-commit hook and by CI.
+#
+# Start from Gitleaks' full default rule set. Add project-specific rules
+# below as integrations (market data API keys, for example) arrive.
+#
+# Never add an allowlist entry to silence a real secret. If a secret was
+# committed, revoke it first; rewriting history comes second.
+
+title = "Project Potato"
+
+[extend]
+useDefault = true
