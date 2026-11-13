@@ -158,10 +158,10 @@ The protocol is described in [permissions.md](permissions.md).
 
 | ID | Threat | STRIDE | Defence | Status | What remains |
 | --- | --- | --- | --- | --- | --- |
-| T-DATA-1 | A secret ends up in source code, a log, the database or an error message. | I | The one credential lives in the macOS Keychain. Every log handler has a redaction filter, and a test plants a known secret and searches the logs for it. Secret scanning runs on every commit. | Partly done | Secret scanning is active today. Redaction relies on recognising a secret's shape or value, so an unusual format could slip through. |
-| T-DATA-2 | Other software running as the same user reads the database or logs. | I | Files are readable by the owner only. No credential is stored in them. | Planned (M1) | The data is not separately encrypted. Disk encryption protects it when the Mac is off, not from software running as the user. This is accepted. |
-| T-DATA-3 | The audit log is altered or erased to hide an action. | R, T | Each entry includes a hash of the one before, so an edit breaks the chain and is detectable. | Planned (M1) | Tamper-evident, not tamper-proof. Someone who can rewrite the whole file can rebuild the chain. |
-| T-DATA-4 | Private content is written to logs: conversations, calendar text. | I | The audit log records what kind of event happened, which tool and what was decided. It stores a digest of the arguments, not the arguments. Conversations are not logged. | Planned (M1) | Tool names and timing alone reveal something about the user's activity. |
+| T-DATA-1 | A secret ends up in source code, a log, the database or an error message. | I | The one credential lives in the macOS Keychain. Every log record is redacted as it is written, and a test plants a known secret and searches the logs for it. Secret scanning runs on every commit. | Partly done | Redaction, its tests (`tests/test_logs.py`) and secret scanning are active today. The Keychain integration arrives in M4. Redaction relies on recognising a secret's value, shape or name, so a secret that was never registered and has an unusual format could slip through. |
+| T-DATA-2 | Other software running as the same user reads the database or logs. | I | Files are readable by the owner only. No credential is stored in them. | Partly done | Log folders and files are owner-only today. The database arrives later in M1. The data is not separately encrypted. Disk encryption protects it when the Mac is off, not from software running as the user. This is accepted. |
+| T-DATA-3 | The audit log is altered or erased to hide an action. | R, T | Each entry includes a hash of the one before, so an edit breaks the chain and is detectable. The whole chain is checked every time the log is opened, and a log that fails is refused. | Done | Tamper-evident, not tamper-proof. Someone who can rewrite the whole file can rebuild the chain, and entries removed from the end leave no trace in the file. Tests in `tests/test_audit.py` demonstrate both limits. Nothing writes to the log until the components that produce events are built. |
+| T-DATA-4 | Private content is written to logs: conversations, calendar text. | I | The audit log records what kind of event happened, which tool and what was decided. It stores a digest of the arguments, not the arguments. Conversations are not logged. | Partly done | The audit log accepts only a few short, simple values per entry today, so content cannot be stored in it by mistake. The rule that conversations are not logged is applied as each component is built. Tool names and timing alone reveal something about the user's activity. |
 | T-DATA-5 | Crafted text changes a database query. | T | Parameterised queries only. A lint rule flags any query built from strings. | Partly done | The lint rule is active today. The database does not exist yet. |
 | T-DATA-6 | Editing a settings file weakens security: a longer allowlist, a remote model address. | T, E | Allowlists and risk levels live in code, not in settings (R7). Settings are validated, unknown settings are errors, and every number can only be set within fixed bounds. A settings file that another account could have written is refused. | Partly done | Settings validation exists today. Risk levels arrive with the permission manager in M2. Anyone who can edit the code can change anything. That is same-user access, which is out of scope. |
 
@@ -213,8 +213,8 @@ limits are clear, not because they are unimportant.
 
 The project specification lists fourteen things that tests must prove. This
 table connects each one to a threat and to the milestone where the test
-lands. Test 10 exists today, in `tests/test_config.py`. The others do not
-exist yet.
+lands. Tests 10 and 11 exist today, in `tests/test_config.py` and
+`tests/test_logs.py`. The others do not exist yet.
 
 | # | Tests must prove that | Threat | Lands in |
 | --- | --- | --- | --- |
