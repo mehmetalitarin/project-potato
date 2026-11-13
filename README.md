@@ -12,8 +12,8 @@ manager.
 
 **Pre-alpha: foundations only.** Nothing in the feature list below is
 implemented yet. This repository currently contains the package structure,
-tooling configuration, security documentation, validated settings, logging
-and tests.
+tooling configuration, security documentation, validated settings, logging,
+a local database and tests.
 
 | Area | State |
 | --- | --- |
@@ -22,7 +22,8 @@ and tests.
 | Threat model and security documentation | Done |
 | Validated settings, with a loopback-only model address | Done |
 | Logging with secrets removed, and a tamper-evident audit log | Done |
-| Local database | Next |
+| Local database for portfolio holdings | Done |
+| Assistant state manager | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
