@@ -2,9 +2,9 @@
 
 > **Status: design document.** The gate itself is built
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
-> file. Physical approvals are not built yet, so a sensitive tool is always
-> refused. No real tool is registered yet: the planned tools arrive in later
-> milestones.
+> file, and so are physical approvals (`approvals.py`). The approval dialog
+> arrives with the interface. No real tool is registered yet: the planned
+> tools arrive in later milestones.
 
 Related documents: [threat model](threat_model.md),
 [architecture](architecture.md).
@@ -124,19 +124,25 @@ Voice confirmation is never accepted. An approval works like this:
    default button is "Deny".
 3. If the user clicks "Approve" or presses the matching key, the interface
    creates an approval token: a keyed hash (HMAC-SHA-256) over the tool
-   name, the arguments in a canonical form, a random nonce and an expiry
-   time.
+   name, the arguments in a canonical form, a random nonce and two expiry
+   times. The decision is written to the audit log first; if it cannot be,
+   no token is made.
 4. The request is submitted again with the token. The gate recomputes the
    hash over the arguments it is about to execute and compares in constant
    time. It checks the expiry and that the nonce has not been seen, marks
-   the nonce as used, and only then runs the tool.
+   the nonce as used, and only then goes on to the remaining checks and the
+   tool. If a later check refuses the call, the approval is still used up
+   and the user is asked again.
+
+Voice is refused before the approval is even looked at, so a real token
+does not help a voice request.
 
 | Requirement | How it is met |
 | --- | --- |
-| Started from the interface or keyboard | Only the `ui` package can create a token (R4 in [architecture.md](architecture.md)). |
+| Started from the interface or keyboard | Making and checking are separate objects. The maker is handed to the `ui` package only, and a test fails if other code refers to it (R4 in [architecture.md](architecture.md)). |
 | Clearly describes the action | Dialog text comes from validated arguments, not from the model. |
 | Tied to the exact action and arguments | The hash covers the tool name and canonical arguments. |
-| Expires quickly | An expiry inside the hash; planned default 30 seconds, adjustable only within fixed bounds. |
+| Expires quickly | Two expiry times inside the hash; default 30 seconds, adjustable only within fixed bounds. One clock cannot be turned back and the other keeps counting while the Mac sleeps. Either can end an approval. |
 | Invalid if any argument changes | A changed argument gives a different hash. |
 | Rejects duplicates and replays | Each nonce is accepted once. |
 

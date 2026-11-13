@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import potato.security.gate as gate_module
+from potato.security.approvals import ApprovalRequest
 from potato.security.audit import AuditLog, AuditLogError, verify_audit_chain
 from potato.security.gate import (
     MAX_RESULT_CHARACTERS,
@@ -20,7 +21,6 @@ from potato.security.gate import (
     GateResult,
     ReasonCode,
     RequestOrigin,
-    digest_arguments,
 )
 from potato.security.redaction import Redactor
 from potato.security.tools import (
@@ -30,6 +30,7 @@ from potato.security.tools import (
     RiskLevel,
     TextField,
     ToolDefinition,
+    digest_arguments,
 )
 
 VOICE, TYPED, INTERFACE = RequestOrigin.VOICE, RequestOrigin.TYPED, RequestOrigin.INTERFACE
@@ -119,8 +120,12 @@ def _open_app(name: object = "Safari") -> dict[str, object]:
     return {"tool": "open_app", "arguments": {"name": name}}
 
 
-def _assert_refused(result: GateResult, reason: ReasonCode) -> None:
-    assert result == GateResult(ok=False, reason=reason, message=MESSAGES[reason], result=None)
+def _assert_refused(
+    result: GateResult, reason: ReasonCode, pending: ApprovalRequest | None = None
+) -> None:
+    assert result == GateResult(
+        ok=False, reason=reason, message=MESSAGES[reason], result=None, pending=pending
+    )
 
 
 # --- A request that passes ---------------------------------------------------
@@ -385,7 +390,12 @@ def test_every_origin_and_risk_pair(
         assert result.ok
         assert len(calls.seen) == 1
     else:
-        _assert_refused(result, expected)
+        pending = (
+            ApprovalRequest("wipe_everything", {})
+            if expected is ReasonCode.APPROVAL_REQUIRED
+            else None
+        )
+        _assert_refused(result, expected, pending)
         assert calls.seen == []
         (entry,) = _entries(audit_path)
         assert entry["data"]["reason"] == expected.value
@@ -393,7 +403,7 @@ def test_every_origin_and_risk_pair(
         assert entry["data"]["arguments_digest"] is not None
 
 
-def test_a_sensitive_tool_never_runs_in_this_version(gate: Gate, calls: Calls) -> None:
+def test_a_sensitive_tool_never_runs_without_an_approval(gate: Gate, calls: Calls) -> None:
     for origin in RequestOrigin:
         for _ in range(3):
             assert not gate.submit(PROPOSALS[RiskLevel.SENSITIVE], origin).ok
