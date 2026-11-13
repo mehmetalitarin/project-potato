@@ -8,8 +8,8 @@ and the gate checks it against rules written in code (``docs/permissions.md``):
 2. Allowlist: the tool must be one the gate was built with (P2).
 3. Arguments: checked strictly against the tool's fields (P3).
 4. Origin: voice reaches low-risk tools only (P6).
-5. Approval: a sensitive tool is refused. Approvals arrive in a later
-   commit; until then nothing sensitive can run (P7).
+5. Approval: a sensitive tool needs a valid approval for exactly this tool
+   and these arguments, made by a click in the interface (P7).
 6. Rate limit for this tool (P8).
 7. Audit: the decision is recorded, or the tool does not run (P11).
 8. Run under a time limit (P9).
@@ -29,7 +29,6 @@ calls to that tool until it has. Tools that wait on something outside
 Potato must therefore set their own time limits too.
 """
 
-import hashlib
 import json
 import logging
 import threading
@@ -41,8 +40,15 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
+from potato.security.approvals import ApprovalCheck, ApprovalRequest, ApprovalVerifier
 from potato.security.audit import AuditEvent, AuditLog, AuditLogError
-from potato.security.tools import ArgumentError, ArgumentValue, RiskLevel, ToolDefinition
+from potato.security.tools import (
+    ArgumentError,
+    ArgumentValue,
+    RiskLevel,
+    ToolDefinition,
+    digest_arguments,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -111,16 +117,21 @@ class GateResult:
         reason: Why not, when ``ok`` is ``False``.
         message: The fixed sentence for ``reason``. Empty when ``ok``.
         result: The tool's output as plain data, when ``ok``.
+        pending: With ``APPROVAL_REQUIRED`` only: the exact action the
+            interface should ask the user about. Not for the model.
     """
 
     ok: bool
     reason: ReasonCode | None
     message: str
     result: Mapping[str, object] | None
+    pending: ApprovalRequest | None = None
 
 
-def _refusal(reason: ReasonCode) -> GateResult:
-    return GateResult(ok=False, reason=reason, message=MESSAGES[reason], result=None)
+def _refusal(reason: ReasonCode, pending: ApprovalRequest | None = None) -> GateResult:
+    return GateResult(
+        ok=False, reason=reason, message=MESSAGES[reason], result=None, pending=pending
+    )
 
 
 class _RateLimiter:
@@ -150,15 +161,6 @@ class _Permit:
     origin: RequestOrigin
 
 
-def digest_arguments(arguments: Mapping[str, ArgumentValue]) -> str:
-    """Return a SHA-256 digest of validated arguments in a canonical form.
-
-    The audit log stores this instead of the arguments (T-DATA-4).
-    """
-    canonical = json.dumps(arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
-
-
 class Gate:
     """Checks every proposal and runs the tool only if all checks pass.
 
@@ -170,6 +172,7 @@ class Gate:
         tools: Iterable[ToolDefinition],
         audit: AuditLog,
         *,
+        approvals: ApprovalVerifier | None = None,
         clock: Callable[[], float] = time.monotonic,
         max_submissions: int = MAX_SUBMISSIONS,
         submission_period_seconds: float = SUBMISSION_PERIOD_SECONDS,
@@ -179,6 +182,8 @@ class Gate:
         Args:
             tools: The allowlist. Nothing can be added later.
             audit: Where every decision is recorded.
+            approvals: Checks approvals for sensitive tools. Without one, no
+                sensitive tool can run.
             clock: Returns seconds from a monotonic clock. Tests replace it.
             max_submissions: Proposals accepted per origin per period.
             submission_period_seconds: The length of that period.
@@ -201,6 +206,7 @@ class Gate:
 
         self._tools: Mapping[str, ToolDefinition] = MappingProxyType(registry)
         self._audit = audit
+        self._approvals = approvals
         self._clock = clock
         self._lock = threading.Lock()
         self._floods = {
@@ -224,13 +230,17 @@ class Gate:
         reach = REACH[origin] if isinstance(origin, RequestOrigin) else frozenset()
         return tuple(sorted(name for name, tool in self._tools.items() if tool.risk in reach))
 
-    def submit(self, proposal: object, origin: RequestOrigin) -> GateResult:
+    def submit(
+        self, proposal: object, origin: RequestOrigin, approval: object = None
+    ) -> GateResult:
         """Check ``proposal`` and, if every check passes, run the tool.
 
         Args:
             proposal: Untrusted. Expected to be a dict with exactly the keys
                 ``"tool"`` and ``"arguments"``.
             origin: Where the proposal came from, stated by the caller.
+            approval: An approval from the interface, for a sensitive tool.
+                Never taken from the proposal. Ignored for other tools.
 
         Returns:
             The tool's result, or a refusal with a fixed code and sentence.
@@ -238,7 +248,7 @@ class Gate:
         """
         try:
             with self._lock:
-                decision = self._decide(proposal, origin)
+                decision = self._decide(proposal, origin, approval)
             if isinstance(decision, GateResult):
                 return decision
             return self._run(decision)
@@ -253,7 +263,7 @@ class Gate:
             except Exception:
                 return _refusal(ReasonCode.INTERNAL_ERROR)
 
-    def _decide(self, proposal: object, origin: object) -> GateResult | _Permit:
+    def _decide(self, proposal: object, origin: object, approval: object) -> GateResult | _Permit:
         """Run checks 0 to 7. Called with the lock held."""
         if not isinstance(origin, RequestOrigin):
             return self._deny(ReasonCode.INTERNAL_ERROR, None)
@@ -292,9 +302,25 @@ class Gate:
         if tool.risk not in REACH[origin]:
             return self._deny(ReasonCode.ORIGIN_NOT_ALLOWED, origin, tool, digest)
 
-        # 5. Approval. Anything that is not known to need none is refused.
+        # 5. Approval, for anything that is not known to need none. A valid
+        # approval is used up here, even if a later check refuses the call.
+        approved = False
         if tool.risk not in (RiskLevel.LOW, RiskLevel.MEDIUM):
-            return self._deny(ReasonCode.APPROVAL_REQUIRED, origin, tool, digest)
+            if approval is None:
+                pending = ApprovalRequest(tool.name, arguments)
+                return self._deny(
+                    ReasonCode.APPROVAL_REQUIRED, origin, tool, digest, pending=pending
+                )
+            check = (
+                ApprovalCheck.UNAVAILABLE
+                if self._approvals is None
+                else self._approvals.check(tool.name, arguments, approval)
+            )
+            if check is not ApprovalCheck.VALID:
+                return self._deny(
+                    ReasonCode.APPROVAL_INVALID, origin, tool, digest, problem=str(check)
+                )
+            approved = True
 
         # 6. Rate limit, and one call at a time per tool.
         if tool.name in self._running or not self._limits[tool.name].allow(now):
@@ -307,6 +333,7 @@ class Gate:
                 tool=tool.name,
                 origin=origin.value,
                 arguments_digest=digest,
+                **({"approved": True} if approved else {}),
             )
         except AuditLogError:
             _log.error("A decision could not be recorded, so the tool was not run")
@@ -321,6 +348,9 @@ class Gate:
         origin: RequestOrigin | None,
         tool: ToolDefinition | None = None,
         digest: str | None = None,
+        *,
+        pending: ApprovalRequest | None = None,
+        problem: str | None = None,
     ) -> GateResult:
         """Record a refusal and return it. The refusal stands even if recording fails."""
         try:
@@ -330,10 +360,11 @@ class Gate:
                 origin=None if origin is None else origin.value,
                 reason=reason.value,
                 arguments_digest=digest,
+                **({} if problem is None else {"approval_problem": problem}),
             )
         except AuditLogError:
             _log.warning("A refusal could not be recorded")
-        return _refusal(reason)
+        return _refusal(reason, pending)
 
     def _run(self, permit: _Permit) -> GateResult:
         """Run the tool in its own thread, wait up to its time limit and record the outcome."""

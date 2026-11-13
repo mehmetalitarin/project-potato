@@ -11,6 +11,8 @@ There is on purpose no field type for a command, source code or a file path
 (P4). Text must match a pattern chosen by the tool's author.
 """
 
+import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -185,6 +187,17 @@ class ToolDefinition:
                 raise ArgumentError
             validated[name] = field.validate(value)
         return validated
+
+
+def digest_arguments(arguments: Mapping[str, ArgumentValue]) -> str:
+    """Return a SHA-256 digest of validated arguments in a canonical form.
+
+    The audit log stores this instead of the arguments (T-DATA-4).
+    """
+    canonical = json.dumps(
+        dict(arguments), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def _require_number(name: str, value: object, maximum: float) -> None:

@@ -26,7 +26,8 @@ tests.
 | Local database for portfolio holdings | Done |
 | Assistant states, with voice unable to wake Potato from sleep | Done |
 | Permission manager: allowlist, strict arguments, origin limits, rate and time limits | Done |
-| Physical approvals | Next |
+| Physical approvals: single-use, expiring tokens bound to one exact action | Done |
+| Security tests for the whole gate | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
