@@ -72,6 +72,7 @@ class AuditEvent(StrEnum):
     APP_STARTED = "app_started"
     APP_STOPPED = "app_stopped"
     STATE_CHANGED = "state_changed"
+    PERMISSION_GRANTED = "permission_granted"
     PERMISSION_DENIED = "permission_denied"
     APPROVAL_DECIDED = "approval_decided"
     TOOL_EXECUTED = "tool_executed"

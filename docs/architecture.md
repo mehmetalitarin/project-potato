@@ -100,14 +100,14 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 
 | ID | Rule | Enforced by | Status |
 | --- | --- | --- | --- |
-| R1 | **One gate.** A tool runs only when `security` hands it a validated call. | Tool functions are reachable only through the gate; tests call them no other way. | Planned (M2) |
+| R1 | **One gate.** A tool runs only when `security` hands it a validated call. | Tool functions are reachable only through the gate; tests call them no other way. | Partly done |
 | R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI. | Planned (M2) |
 | R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules, active now; an import contract for the single module. | Partly done |
 | R4 | **Only the interface creates approvals.** No other package can create one, and `voice` cannot reach the code that does. | An import contract and a test. | Planned (M2) |
 | R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | A test that inspects the running process, and an import contract on networking libraries. | Planned (M1, M3) |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results and assert that no call follows. | Planned (M3) |
 | R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
-| R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Planned (M2) |
+| R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Partly done |
 | R9 | **No secrets outside the Keychain.** Not in source, settings, the database or logs. | Secret scanning and log redaction tests, both active now. | Partly done |
 
 Import contracts are added with the code they constrain, so the exact

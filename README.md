@@ -13,7 +13,8 @@ manager.
 **Pre-alpha: foundations only.** Nothing in the feature list below is
 implemented yet. This repository currently contains the package structure,
 tooling configuration, security documentation, validated settings, logging,
-a local database, the assistant's state rules and tests.
+a local database, the assistant's state rules, the permission manager and
+tests.
 
 | Area | State |
 | --- | --- |
@@ -24,7 +25,8 @@ a local database, the assistant's state rules and tests.
 | Logging with secrets removed, and a tamper-evident audit log | Done |
 | Local database for portfolio holdings | Done |
 | Assistant states, with voice unable to wake Potato from sleep | Done |
-| Permission manager and physical approvals | Next |
+| Permission manager: allowlist, strict arguments, origin limits, rate and time limits | Done |
+| Physical approvals | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
