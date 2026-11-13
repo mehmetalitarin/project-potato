@@ -5,7 +5,7 @@
 > in each table says whether a defence exists yet. Nothing here is a claim
 > that Potato is secure.
 
-Last reviewed: 2026-11-12. Applies to: planned version 1.0.
+Last reviewed: 2026-11-13. Applies to: planned version 1.0.
 
 Related documents: [architecture](architecture.md),
 [permissions](permissions.md), [security policy](../SECURITY.md).
@@ -107,7 +107,7 @@ The model only holds if these are true. If one fails, see
 | T-LLM-3 | Model output is passed to something that interprets it: a shell, SQL, `eval`, HTML rendering, speech control codes. | T, E | No shell and no `eval` or `exec` anywhere, enforced by lint rules. SQL uses parameters only. The interface shows model text as plain text. Speech uses the synthesis API with control sequences stripped. | Partly done | The lint rules are active today. The other sinks do not exist yet; each gets its own test when it is built. |
 | T-LLM-4 | Injected text distorts the reply: the summary states something false or omits a deadline. | T | The interface shows the underlying data (events, prices, findings) from code, next to the model's summary. Security findings are explained with fixed, reviewed text, not model-written text. | Planned (M3, M8) | A spoken summary heard without looking at the screen can still be wrong. |
 | T-LLM-5 | The model loops, floods the gate with calls or produces enormous output. | D | A small fixed limit on tool calls per turn, rate limits (P8), timeouts (P9) and output size caps. | Planned (M2, M3) | A turn can still be slow or fail. It cannot run without bound. |
-| T-LLM-6 | Prompts leave the machine: a cloud model is used, or the endpoint is not local. | I | Potato accepts only a loopback address for Ollama and only model names on an allowlist; cloud-tagged models are rejected. There is no fallback to any other service. | Planned (M1, M3) | Potato checks its own configuration. It cannot control how Ollama itself is configured, so it warns when Ollama's settings look wrong. |
+| T-LLM-6 | Prompts leave the machine: a cloud model is used, or the endpoint is not local. | I | Potato accepts only a loopback address for Ollama and only model names on an allowlist; cloud-tagged models are rejected. There is no fallback to any other service. | Partly done | The settings enforce the address and the model name today (`tests/test_config.py`). The client that uses them arrives in M3. Potato checks its own configuration; it cannot control how Ollama itself is configured, so it will warn when Ollama's settings look wrong. |
 | T-LLM-7 | Ollama is not running, or another local program answers on its port. | D, S, I | A health check and a clear "AI engine offline" state; every other feature keeps working. Responses are untrusted whoever sent them, so an impostor gains no more than the real model has. | Planned (M3) | A program already running as the user could receive prompts by sitting on that port. That is same-user malware, which is out of scope. |
 | T-LLM-8 | The model weights themselves are poisoned or backdoored. | T | None that detects it. The design limits the damage instead: a hostile model has exactly the abilities of an honest one, and those stop at the gate. | Planned (M2) | A hostile model can give bad answers and choose allowed low-risk tools at the wrong moment. |
 
@@ -151,7 +151,7 @@ The protocol is described in [permissions.md](permissions.md).
 | --- | --- | --- | --- | --- | --- |
 | T-NET-1 | Someone on the network reads or alters the market data connection. | T, I | TLS with certificate validation that is never switched off. The API key travels in a header, never in the address. Timeouts on every request. | Planned (M4) | If the provider itself sends wrong prices, Potato shows wrong prices. It only displays them and never acts on them. |
 | T-NET-2 | An API response is oversized, malformed or carries text aimed at the model. | T, D | A response size cap and a strict schema. Numbers are parsed as numbers. Text fields are length-capped and treated as data (T-LLM-1). | Planned (M4) | None known in the design. |
-| T-NET-3 | Potato or Ollama can be reached from the network. | E, I | Potato opens no listening socket at all. Ollama must be on a loopback address, or Potato refuses to use it. Ollama's own protections against web pages calling it are left at their defaults. | Planned (M1) | Other programs on the same Mac can talk to Ollama. That is how Ollama is designed. |
+| T-NET-3 | Potato or Ollama can be reached from the network. | E, I | Potato opens no listening socket at all. Ollama must be on a loopback address, or Potato refuses to use it. Ollama's own protections against web pages calling it are left at their defaults. | Partly done | The loopback rule is enforced today: the address must be a loopback IP literal, and host names are refused. The test that Potato itself opens no listener arrives with the first network code in M3. Other programs on the same Mac can talk to Ollama. That is how Ollama is designed. |
 | T-NET-4 | Lookups reveal the user's holdings to the data provider. | I | Only ticker symbols are sent. Quantities, prices paid and totals never leave the Mac. | Planned (M4) | The provider learns which symbols are watched, and from which address. |
 
 ### Stored data and secrets
@@ -163,7 +163,7 @@ The protocol is described in [permissions.md](permissions.md).
 | T-DATA-3 | The audit log is altered or erased to hide an action. | R, T | Each entry includes a hash of the one before, so an edit breaks the chain and is detectable. | Planned (M1) | Tamper-evident, not tamper-proof. Someone who can rewrite the whole file can rebuild the chain. |
 | T-DATA-4 | Private content is written to logs: conversations, calendar text. | I | The audit log records what kind of event happened, which tool and what was decided. It stores a digest of the arguments, not the arguments. Conversations are not logged. | Planned (M1) | Tool names and timing alone reveal something about the user's activity. |
 | T-DATA-5 | Crafted text changes a database query. | T | Parameterised queries only. A lint rule flags any query built from strings. | Partly done | The lint rule is active today. The database does not exist yet. |
-| T-DATA-6 | Editing a settings file weakens security: a longer allowlist, a remote model address. | T, E | Allowlists and risk levels live in code, not in settings (R7). Settings are validated, and the security-relevant ones can only be set within fixed bounds. | Planned (M1) | Anyone who can edit the code can change anything. That is same-user access, which is out of scope. |
+| T-DATA-6 | Editing a settings file weakens security: a longer allowlist, a remote model address. | T, E | Allowlists and risk levels live in code, not in settings (R7). Settings are validated, unknown settings are errors, and every number can only be set within fixed bounds. A settings file that another account could have written is refused. | Partly done | Settings validation exists today. Risk levels arrive with the permission manager in M2. Anyone who can edit the code can change anything. That is same-user access, which is out of scope. |
 
 ### Supply chain and repository
 
@@ -213,7 +213,8 @@ limits are clear, not because they are unimportant.
 
 The project specification lists fourteen things that tests must prove. This
 table connects each one to a threat and to the milestone where the test
-lands. None of these tests exists yet.
+lands. Test 10 exists today, in `tests/test_config.py`. The others do not
+exist yet.
 
 | # | Tests must prove that | Threat | Lands in |
 | --- | --- | --- | --- |

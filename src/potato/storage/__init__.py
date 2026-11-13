@@ -1,7 +1,7 @@
-"""Local storage: the SQLite database layer.
+"""Local storage: the settings file and, later, the SQLite database.
 
 Boundary: parameterised queries only, and no secrets. Credentials belong in
-the macOS Keychain, never in the database.
+the macOS Keychain, never in the database or the settings file.
 
-No code yet.
+So far: ``settings_file``, which reads the optional settings file safely.
 """

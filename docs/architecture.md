@@ -106,7 +106,7 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 | R4 | **Only the interface creates approvals.** No other package can create one, and `voice` cannot reach the code that does. | An import contract and a test. | Planned (M2) |
 | R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | A test that inspects the running process, and an import contract on networking libraries. | Planned (M1, M3) |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results and assert that no call follows. | Planned (M3) |
-| R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that has no such fields. | Planned (M1, M2) |
+| R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
 | R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Planned (M2) |
 | R9 | **No secrets outside the Keychain.** Not in source, settings, the database or logs. | Secret scanning, active now; log redaction tests. | Partly done |
 
@@ -138,7 +138,8 @@ Provisional until the state manager is built in M1.
 
 | Data | Where | Notes |
 | --- | --- | --- |
-| Portfolio holdings, settings | SQLite database in the user's Library folder | Owner-only file permissions. Not separately encrypted (T-DATA-2). |
+| Settings | Optional TOML file in the user's Library folder | Validated when read. Refused if another account could have written it (T-DATA-6). Holds no secrets. |
+| Portfolio holdings | SQLite database in the user's Library folder | Owner-only file permissions. Not separately encrypted (T-DATA-2). |
 | Market data API key | macOS Keychain | The only credential (R9). |
 | Application log, audit log | Log files in the user's Library folder | Redacted, rotated, hash-chained audit entries (T-DATA-3). |
 | Audio | Memory only | Never written to disk (T-VOICE-4). |

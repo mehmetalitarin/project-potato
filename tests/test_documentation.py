@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from potato.core.config import Settings, parse_settings
+
 ROOT = Path(__file__).resolve().parent.parent
 
 THREAT_MODEL = ROOT / "docs" / "threat_model.md"
@@ -221,3 +223,13 @@ def test_rule_says_how_it_is_enforced_and_its_status(rule: str) -> None:
     assert len(cells) == 4
     assert cells[2], f"{rule} must say how it is enforced"
     assert STATUS.fullmatch(cells[3]), f"{rule} has status {cells[3]!r}"
+
+
+# --- README -------------------------------------------------------------------
+
+
+def test_readme_settings_example_is_valid_and_shows_the_real_defaults() -> None:
+    examples = re.findall(r"```toml\n(.*?)```", _read(README), flags=re.DOTALL)
+
+    assert len(examples) == 1
+    assert parse_settings(examples[0]) == Settings()
