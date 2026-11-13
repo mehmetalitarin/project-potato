@@ -712,5 +712,13 @@ def test_rate_limit_holds_under_concurrent_callers(audit: AuditLog, audit_path: 
         thread.start()
     for thread in threads:
         thread.join(timeout=30)
+    # Callers that arrive while the tool is running are turned away without
+    # using up the limit, so fewer than five may have run. Never more.
+    assert 1 <= count <= 5
+    _wait_until(lambda: not gate._running)
+    proposal = {"tool": "look", "arguments": {}}
+    while count < 5:
+        assert gate.submit(proposal, TYPED).ok
+    _assert_refused(gate.submit(proposal, TYPED), ReasonCode.RATE_LIMITED)
     assert count == 5
     assert verify_audit_chain(audit_path).ok

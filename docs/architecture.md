@@ -100,18 +100,21 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 
 | ID | Rule | Enforced by | Status |
 | --- | --- | --- | --- |
-| R1 | **One gate.** A tool runs only when `security` hands it a validated call. | Tool functions are reachable only through the gate; tests call them no other way. | Partly done |
-| R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI. | Planned (M2) |
-| R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules, active now; an import contract for the single module. | Partly done |
-| R4 | **Only the interface creates approvals.** The object that makes approvals is handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package refers to it; an import contract when `ui` and `voice` have code. | Partly done |
-| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | A test that inspects the running process, and an import contract on networking libraries. | Planned (M1, M3) |
+| R1 | **One gate.** A tool runs only when `security` hands it a validated call. | Tool functions are reachable only through the gate; tests call them no other way. Random requests are checked against a separate statement of the rules (`tests/test_gate_security.py`). | Partly done |
+| R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI (`tests/test_architecture.py`). | Done |
+| R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules and `tests/test_architecture.py`, both active now. No module may start a process yet; the single one is named in that test when it is built. | Partly done |
+| R4 | **Only the interface creates approvals.** The object that makes approvals is handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package refers to it, and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Partly done |
+| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | An import contract on networking libraries, active now (`tests/test_architecture.py`), and a test that inspects the running process, which arrives with the first network code. | Partly done |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results and assert that no call follows. | Planned (M3) |
 | R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
 | R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Partly done |
 | R9 | **No secrets outside the Keychain.** Not in source, settings, the database or logs. | Secret scanning and log redaction tests, both active now. | Partly done |
 
-Import contracts are added with the code they constrain, so the exact
-module names are fixed then, not here.
+The import contracts are tests in `tests/test_architecture.py`. They read
+every source file, and each one is itself tested against a planted
+violation. Relative imports, star imports and run-time imports are not
+allowed, because they would hide an import from these checks. The table of
+which package may import which is in that file.
 
 ## Assistant states
 
