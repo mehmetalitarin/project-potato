@@ -4,5 +4,5 @@ Boundary: this package decides *what should happen next* but never touches the
 operating system or calls a tool itself. Every action it wants goes through
 ``potato.security``.
 
-No code yet.
+So far: ``config``, the validated settings.
 """

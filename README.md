@@ -10,17 +10,17 @@ manager.
 
 ## Status
 
-**Pre-alpha: project scaffold and design documents only.** Nothing in the
-feature list below is implemented yet. This repository currently contains
-the package structure, tooling configuration, security documentation and
-tests.
+**Pre-alpha: foundations only.** Nothing in the feature list below is
+implemented yet. This repository currently contains the package structure,
+tooling configuration, security documentation, validated settings and tests.
 
 | Area | State |
 | --- | --- |
 | Project setup, linting, typing, tests | Done |
 | Continuous integration, dependency audit, secret scanning | Done |
 | Threat model and security documentation | Done |
-| Configuration with loopback-only validation | Next |
+| Validated settings, with a loopback-only model address | Done |
+| Logging with redaction, and the audit log | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
@@ -125,7 +125,33 @@ Run the scaffold itself:
 
 ```bash
 python -m potato --version
+python -m potato --check-settings
 ```
+
+## Settings
+
+Potato runs on built-in defaults. An optional file at
+`~/Library/Application Support/Potato/settings.toml` can adjust them:
+
+```toml
+[ollama]
+host = "127.0.0.1"             # loopback IP addresses only; host names are refused
+port = 11434
+model = "qwen3:8b"             # must be on the allowlist in the source code
+request_timeout_seconds = 60
+context_length = 8192
+
+[assistant]
+idle_timeout_seconds = 300
+
+[security]
+approval_lifetime_seconds = 30
+```
+
+Every number has a fixed minimum and maximum, and an unknown setting is an
+error. `python -m potato --check-settings` validates the file and reports
+the result. Nothing uses these settings yet; the components that will are
+built in later milestones.
 
 ## Project layout
 
