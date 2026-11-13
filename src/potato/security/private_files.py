@@ -1,7 +1,7 @@
-"""Creates log folders and files that only their owner can use.
+"""Creates folders and files that only their owner can use.
 
-Logs can reveal what the user does, so they are kept private to the user's
-account (T-DATA-2 in ``docs/threat_model.md``). This stops other accounts on
+Logs and the database can reveal what the user does, so they are kept
+private to the user's account (T-DATA-2 in ``docs/threat_model.md``). This stops other accounts on
 the same Mac. It does not stop software running as the same user, which the
 threat model places out of scope.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 class PrivateFileError(Exception):
-    """A log folder or file exists but is not safe to use."""
+    """A private folder or file exists but is not safe to use."""
 
 
 def ensure_private_directory(path: Path) -> None:
@@ -26,12 +26,12 @@ def ensure_private_directory(path: Path) -> None:
             another user.
     """
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # lstat, not stat: a link here could point the logs somewhere unexpected.
+    # lstat, not stat: a link here could point the files somewhere unexpected.
     status = path.lstat()
     if not stat.S_ISDIR(status.st_mode):
-        raise PrivateFileError("the log folder path is not a real folder")
+        raise PrivateFileError("the folder path is not a real folder")
     if status.st_uid != os.getuid():
-        raise PrivateFileError("the log folder belongs to another user")
+        raise PrivateFileError("the folder belongs to another user")
     if stat.S_IMODE(status.st_mode) != 0o700:
         path.chmod(0o700)
 
@@ -58,14 +58,14 @@ def open_private_append(path: Path) -> int:
     try:
         descriptor = os.open(path, flags, 0o600)
     except OSError as error:
-        raise PrivateFileError("the log file could not be opened safely") from error
+        raise PrivateFileError("the file could not be opened safely") from error
 
     try:
         status = os.fstat(descriptor)
         if not stat.S_ISREG(status.st_mode):
-            raise PrivateFileError("the log path is not a regular file")
+            raise PrivateFileError("the path is not a regular file")
         if status.st_uid != os.getuid():
-            raise PrivateFileError("the log file belongs to another user")
+            raise PrivateFileError("the file belongs to another user")
         if stat.S_IMODE(status.st_mode) != 0o600:
             os.fchmod(descriptor, 0o600)
     except BaseException:

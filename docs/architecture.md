@@ -139,7 +139,7 @@ Provisional until the state manager is built in M1.
 | Data | Where | Notes |
 | --- | --- | --- |
 | Settings | Optional TOML file in the user's Library folder | Validated when read. Refused if another account could have written it (T-DATA-6). Holds no secrets. |
-| Portfolio holdings | SQLite database in the user's Library folder | Owner-only file permissions. Not separately encrypted (T-DATA-2). |
+| Portfolio holdings | SQLite database in the user's Library folder | Ticker symbols and quantities only. Owner-only file permissions. Not separately encrypted (T-DATA-2). |
 | Market data API key | macOS Keychain | The only credential (R9). |
 | Application log, audit log | Log files in the user's Library folder | Owner-only, redacted and rotated. Audit entries are hash-chained (T-DATA-3). |
 | Audio | Memory only | Never written to disk (T-VOICE-4). |
