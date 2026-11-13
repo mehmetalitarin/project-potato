@@ -1,8 +1,10 @@
 # Permissions
 
-> **Status: design document.** The permission manager is built in milestone 2
-> and nothing below exists in code yet. This file is the specification that
-> code will be tested against.
+> **Status: design document.** The gate itself is built
+> (`src/potato/security/gate.py` and `tools.py`) and tested against this
+> file. Physical approvals are not built yet, so a sensitive tool is always
+> refused. No real tool is registered yet: the planned tools arrive in later
+> milestones.
 
 Related documents: [threat model](threat_model.md),
 [architecture](architecture.md).
@@ -40,7 +42,11 @@ Each guarantee has a stable ID. Tests name the guarantee they prove.
 
 ## The checks, in order
 
-1. **Parse.** The proposal must be well-formed. Otherwise deny.
+0. **Flood limit.** Each origin may submit a bounded number of proposals
+   per minute, counting refused ones (P8). Voice cannot use up the
+   interface's allowance.
+1. **Parse.** The proposal must be exactly a tool name and arguments. Any
+   other field, such as `approved` or `origin`, is refused (P12).
 2. **Allowlist.** The tool name must be in the list (P2).
 3. **Arguments.** Validate against the tool's schema (P3).
 4. **Origin.** The tool's risk level must be reachable from this origin (P6).
@@ -51,7 +57,15 @@ Each guarantee has a stable ID. Tests name the guarantee they prove.
 9. **Audit again.** Record the outcome and how long it took.
 
 A failure at any step stops the sequence, and the denial is itself written
-to the audit log.
+to the audit log. One exception: during a flood, only the first
+`RATE_LIMITED` refusal is recorded, so that a flood cannot push older
+entries out of the log.
+
+**A limit of time limits.** Python cannot stop a running function. When a
+tool passes its time limit the gate stops waiting and reports `TIMED_OUT`,
+but the tool may still finish in the background. The gate refuses further
+calls to that tool until it has. Tools that wait on something outside
+Potato set their own time limits as well.
 
 ## Risk levels
 
@@ -153,6 +167,7 @@ the model see only the code and a fixed sentence.
 | `APPROVAL_INVALID` | The approval does not match, has expired or was already used. |
 | `RATE_LIMITED` | Too many calls. |
 | `TIMED_OUT` | The tool exceeded its time limit. |
+| `TOOL_FAILED` | The tool ran but could not finish, or returned something unusable. |
 | `INTERNAL_ERROR` | A check failed unexpectedly. Treated as a denial. |
 
 `APPROVAL_INVALID` deliberately does not say which of the three reasons
@@ -165,7 +180,12 @@ reason code, a digest of the arguments, the duration and the hash that
 links the entry to the one before it.
 
 It does not record the arguments themselves, the conversation, calendar
-text or any credential (T-DATA-4).
+text or any credential (T-DATA-4). The name of an unknown tool is not
+recorded either, because it is text chosen by the model.
+
+A digest hides long or unusual values. It does not hide a value from a
+short list: someone who can read the log could try each approved
+application name and compare digests.
 
 ## Adding a tool
 

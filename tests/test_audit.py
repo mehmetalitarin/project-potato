@@ -84,6 +84,7 @@ def test_the_specification_events_all_exist() -> None:
         "app_started",
         "app_stopped",
         "state_changed",
+        "permission_granted",
         "permission_denied",
         "approval_decided",
         "tool_executed",
