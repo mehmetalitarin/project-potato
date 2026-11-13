@@ -13,7 +13,7 @@ manager.
 **Pre-alpha: foundations only.** Nothing in the feature list below is
 implemented yet. This repository currently contains the package structure,
 tooling configuration, security documentation, validated settings, logging,
-a local database and tests.
+a local database, the assistant's state rules and tests.
 
 | Area | State |
 | --- | --- |
@@ -23,7 +23,8 @@ a local database and tests.
 | Validated settings, with a loopback-only model address | Done |
 | Logging with secrets removed, and a tamper-evident audit log | Done |
 | Local database for portfolio holdings | Done |
-| Assistant state manager | Next |
+| Assistant states, with voice unable to wake Potato from sleep | Done |
+| Permission manager and physical approvals | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a

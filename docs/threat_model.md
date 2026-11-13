@@ -118,7 +118,7 @@ The model only holds if these are true. If one fails, see
 | T-VOICE-1 | A video, a visitor or a recording says "Potato" and gives a command. | S | Voice reaches only low-risk tools (P6), with rate limits. The wake word must also appear in the transcript before anything happens. The current state is always visible. | Planned (M2, M7) | Potato does not identify the speaker. Anyone in earshot can use the low-risk tools, for example open an approved application. |
 | T-VOICE-2 | Speech recognition mishears a command and the wrong thing happens. | T | No destructive tool exists. Changes to stored data are not available by voice at all (P6). | Planned (M2) | The wrong low-risk action can run, and is easy to see and undo. |
 | T-VOICE-3 | Voice is used to approve a sensitive action. | S, E | Approvals can only be created by the interface from a physical input event (P7, R4). The voice code has no path to create one, and a test proves it. | Planned (M2, M7) | Software the user has granted control of the computer can imitate a click. See T-APPR-4. |
-| T-VOICE-4 | Potato listens to, or keeps, more audio than the user expects. | I | In standby only the wake-word detector runs; nothing is transcribed. Audio is never written to disk. Mute closes the microphone stream completely. The microphone state is shown at all times. | Planned (M7) | In standby the microphone stream is open, because the wake-word detector needs it. The interface says so. |
+| T-VOICE-4 | Potato listens to, or keeps, more audio than the user expects. | I | In standby only the wake-word detector runs; nothing is transcribed. Audio is never written to disk. Mute closes the microphone stream completely. The microphone state is shown at all times. | Partly done | The states and the rules for moving between them are built and tested (`tests/test_state.py`). The microphone that follows them, and the display of its state, arrive in M7. In standby the microphone stream is open, because the wake-word detector needs it. The interface says so. |
 | T-VOICE-5 | Private data is read aloud to whoever asks: portfolio value, calendar details. | I | A setting chooses, per category, whether results are spoken or only shown. Portfolio figures default to shown only. | Planned (M7) | Calendar reminders are spoken by design, so a visitor who asks can hear them. |
 
 ### Approvals
@@ -214,7 +214,9 @@ limits are clear, not because they are unimportant.
 The project specification lists fourteen things that tests must prove. This
 table connects each one to a threat and to the milestone where the test
 lands. Tests 10 and 11 exist today, in `tests/test_config.py` and
-`tests/test_logs.py`. The others do not exist yet.
+`tests/test_logs.py`. Test 13 exists for the state rules in
+`tests/test_state.py`, and is extended when the microphone arrives in M7.
+The others do not exist yet.
 
 | # | Tests must prove that | Threat | Lands in |
 | --- | --- | --- | --- |
