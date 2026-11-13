@@ -115,7 +115,9 @@ module names are fixed then, not here.
 
 ## Assistant states
 
-Provisional until the state manager is built in M1.
+Defined in `src/potato/core/state.py`, with every allowed change in one fixed
+table. A test checks this table against the code. Microphone and model control
+arrive in M7 and follow these states.
 
 | State | Microphone | Wake word | Speech-to-text | Model in memory |
 | --- | --- | --- | --- | --- |
@@ -132,7 +134,14 @@ Provisional until the state manager is built in M1.
 - **Active returns to standby** after an idle timeout, and the model is
   unloaded from memory.
 - **Error** closes the microphone. Potato never stays listening in a state it
-  does not understand.
+  does not understand. If a component cannot follow a change of state, Potato
+  moves here. It is left only from the interface.
+- **Potato starts in Sleeping.** Nothing listens until the interface wakes it.
+- **Voice only reduces.** Voice can turn the wake word into a conversation
+  (Standby to Active) and can put Potato to sleep. Nothing else.
+- **Opening is recorded first.** A change that opens the microphone or loads
+  the model is written to the audit log before it happens, and is refused if
+  it cannot be. A change that closes things is never blocked by the log.
 
 ## Where data lives
 
