@@ -12,7 +12,8 @@ manager.
 
 **Pre-alpha: foundations only.** Nothing in the feature list below is
 implemented yet. This repository currently contains the package structure,
-tooling configuration, security documentation, validated settings and tests.
+tooling configuration, security documentation, validated settings, logging
+and tests.
 
 | Area | State |
 | --- | --- |
@@ -20,7 +21,8 @@ tooling configuration, security documentation, validated settings and tests.
 | Continuous integration, dependency audit, secret scanning | Done |
 | Threat model and security documentation | Done |
 | Validated settings, with a loopback-only model address | Done |
-| Logging with redaction, and the audit log | Next |
+| Logging with secrets removed, and a tamper-evident audit log | Done |
+| Local database | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
