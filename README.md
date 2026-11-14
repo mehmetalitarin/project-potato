@@ -14,7 +14,8 @@ manager.
 repository currently contains the package structure, tooling configuration,
 security documentation, validated settings, logging, a local database, the
 assistant's state rules, the permission manager, a client for the local
-model, the conversation logic, the portfolio tools and tests. There is no
+model, the conversation logic, the portfolio tools, a market data client
+and tests. There is no
 window or voice input yet, so Potato cannot be used as an app.
 
 | Area | State |
@@ -32,7 +33,9 @@ window or voice input yet, so Potato cannot be used as an app.
 | Local model client (Ollama): loopback only, bounded, strict | Done |
 | Conversation turns in two passes, so that outside text cannot trigger a tool | Done |
 | Portfolio tools: list, add and remove holdings (typed only, not by voice) | Done |
-| Market prices for the portfolio | Next |
+| Market data client: verified TLS to one fixed address, bounded, strict | Done |
+| API key in the macOS Keychain | Next |
+| Live prices in the portfolio summary | Planned |
 | Tools: calendar, app launcher, security monitors | Planned |
 | Everything else | Not started |
 
@@ -152,6 +155,19 @@ ollama pull qwen3:8b
 
 If Ollama is not running, or the model is not installed, Potato says so and
 carries on without it.
+
+## Market prices
+
+Prices come from [Finnhub](https://finnhub.io), using your own free API key.
+Potato sends Finnhub one ticker symbol at a time and nothing else about you:
+no quantities and no prices paid. The connection is always verified TLS to
+that one address.
+
+A free Finnhub key covers US-listed shares only, so holdings listed
+elsewhere get no live price. Prices are for display. Potato never trades.
+
+The client is built, but Potato cannot use it yet: storing the key in the
+macOS Keychain comes next.
 
 ## Settings
 
