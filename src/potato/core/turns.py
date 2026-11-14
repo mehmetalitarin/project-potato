@@ -38,6 +38,7 @@ from typing import Final, Protocol
 from potato.core.state import AssistantState, StateManager
 from potato.integrations.ollama import (
     Message,
+    OllamaModelMissingError,
     OllamaResponseError,
     OllamaUnavailableError,
     Reply,
@@ -66,6 +67,9 @@ REPLY_PROMPT: Final = (
 )
 
 TEXT_OFFLINE: Final = "The AI engine is offline. Start Ollama and try again."
+TEXT_MODEL_MISSING: Final = (
+    "The AI model is not installed. Run 'ollama pull' for the model named in the README."
+)
 TEXT_MODEL_ERROR: Final = "The AI engine gave an answer Potato could not use. Please try again."
 TEXT_NO_SUMMARY: Final = "That is done, but the AI engine could not write a summary."
 TEXT_BUSY: Final = "Potato is still working on the last request."
@@ -207,6 +211,8 @@ class TurnEngine:
             choice = self._model.chat([Message(Role.SYSTEM, CHOOSE_PROMPT), user], offered)
         except OllamaUnavailableError:
             return TurnResult(TurnStatus.OFFLINE, TEXT_OFFLINE)
+        except OllamaModelMissingError:
+            return TurnResult(TurnStatus.OFFLINE, TEXT_MODEL_MISSING)
         except (OllamaResponseError, ValueError):
             return TurnResult(TurnStatus.MODEL_ERROR, TEXT_MODEL_ERROR)
 

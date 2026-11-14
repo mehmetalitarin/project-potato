@@ -23,6 +23,7 @@ from potato.integrations.ollama import (
     MAX_RESPONSE_BYTES,
     Message,
     OllamaClient,
+    OllamaModelMissingError,
     OllamaResponseError,
     OllamaUnavailableError,
     Reply,
@@ -373,6 +374,20 @@ def test_only_status_200_is_accepted(server: FakeOllama, client: OllamaClient, s
     server.respond = respond
     with pytest.raises(OllamaResponseError):
         client.chat(USER)
+
+
+def test_a_missing_model_gets_its_own_clear_error(server: FakeOllama, client: OllamaClient) -> None:
+    # What a real Ollama answers when the model has not been pulled.
+    body = {"error": f"model '{CANARY}' not found"}
+    server.respond = lambda h, p, b: send_json(h, body, status=404)
+    with pytest.raises(OllamaModelMissingError) as caught:
+        client.chat(USER)
+    assert str(caught.value) == "the model is not installed in Ollama"
+    assert CANARY not in repr(caught.value)
+    assert caught.value.__cause__ is None
+    # Code that handles any unusable reply still handles this one.
+    assert isinstance(caught.value, OllamaResponseError)
+    assert client.is_available() is False
 
 
 def test_an_error_status_is_refused_without_repeating_the_server(

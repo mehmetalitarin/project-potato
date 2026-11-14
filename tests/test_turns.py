@@ -28,6 +28,7 @@ from potato.core.turns import (
     TEXT_BUSY,
     TEXT_EMPTY_REPLY,
     TEXT_MODEL_ERROR,
+    TEXT_MODEL_MISSING,
     TEXT_NO_SUMMARY,
     TEXT_NOT_ACTIVE,
     TEXT_NOTHING_SAID,
@@ -42,6 +43,7 @@ from potato.core.turns import (
 from potato.integrations.ollama import (
     Message,
     OllamaClient,
+    OllamaModelMissingError,
     OllamaResponseError,
     OllamaUnavailableError,
     Reply,
@@ -501,6 +503,14 @@ def test_offline_is_reported_and_nothing_runs(world: World) -> None:
     model = ScriptedModel(OllamaUnavailableError("down"))
     result = TurnEngine(model, world.gate).run("what is due?", TYPED)
     assert result == TurnResult(TurnStatus.OFFLINE, TEXT_OFFLINE)
+    assert world.ran == []
+
+
+def test_a_missing_model_tells_the_user_what_to_do(world: World) -> None:
+    model = ScriptedModel(OllamaModelMissingError("missing"))
+    result = TurnEngine(model, world.gate).run("what is due?", TYPED)
+    assert result == TurnResult(TurnStatus.OFFLINE, TEXT_MODEL_MISSING)
+    assert "ollama pull" in result.text
     assert world.ran == []
 
 
