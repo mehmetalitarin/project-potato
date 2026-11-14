@@ -84,6 +84,10 @@ class OllamaResponseError(Exception):
     """Ollama answered, but with something Potato will not use."""
 
 
+class OllamaModelMissingError(OllamaResponseError):
+    """Ollama is running but does not have the model installed."""
+
+
 def _require_loopback_host(host: object) -> str:
     """Return ``host`` ready for ``http.client`` if it is a loopback IP literal, else raise."""
     if type(host) is not str:
@@ -190,6 +194,7 @@ class OllamaClient:
         Raises:
             ValueError: Too many messages or tools.
             OllamaUnavailableError: Ollama could not be reached in time.
+            OllamaModelMissingError: Ollama does not have the model installed.
             OllamaResponseError: The reply was not usable.
         """
         if not 1 <= len(messages) <= MAX_MESSAGES:
@@ -260,6 +265,10 @@ class OllamaClient:
             # go of a reply that ends the connection, so closing the
             # connection alone would leave its socket open.
             try:
+                if response.status == 404:
+                    # Ollama's answer when the model has not been pulled.
+                    # The sentence is fixed; nothing the server sent is kept.
+                    raise OllamaModelMissingError("the model is not installed in Ollama")
                 if response.status != 200:
                     raise OllamaResponseError("Ollama refused the request")
                 raw = _read_bounded(response, deadline)

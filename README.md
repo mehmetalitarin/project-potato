@@ -139,6 +139,18 @@ python -m potato --version
 python -m potato --check-settings
 ```
 
+## The local model
+
+Potato talks to [Ollama](https://ollama.com) on this Mac and to nothing
+else. Install Ollama, then download the model once:
+
+```bash
+ollama pull qwen3:8b
+```
+
+If Ollama is not running, or the model is not installed, Potato says so and
+carries on without it.
+
 ## Settings
 
 Potato runs on built-in defaults. An optional file at
