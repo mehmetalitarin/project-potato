@@ -410,8 +410,12 @@ def _is_valid(tool: ToolDefinition, arguments: object) -> bool:
         elif isinstance(field, IntegerField):
             if type(value) is not int or value < field.minimum or value > field.maximum:
                 return False
-        elif type(value) is not str or re.fullmatch(field.pattern.pattern, value) is None:
-            return False
+        elif isinstance(field, TextField):
+            if type(value) is not str or re.fullmatch(field.pattern.pattern, value) is None:
+                return False
+        else:
+            # A new kind of field needs its rule restated here too.
+            raise AssertionError(f"no restated rule for {type(field).__name__}")
     return True
 
 

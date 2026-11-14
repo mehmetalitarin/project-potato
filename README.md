@@ -10,12 +10,12 @@ manager.
 
 ## Status
 
-**Pre-alpha: foundations only.** Nothing in the feature list below is
-implemented yet. This repository currently contains the package structure,
-tooling configuration, security documentation, validated settings, logging,
-a local database, the assistant's state rules, the permission manager, a
-client for the local model, the conversation logic and tests. No tool is
-registered yet, so Potato cannot do anything useful.
+**Pre-alpha.** Most of the feature list below is not built yet. This
+repository currently contains the package structure, tooling configuration,
+security documentation, validated settings, logging, a local database, the
+assistant's state rules, the permission manager, a client for the local
+model, the conversation logic, the portfolio tools and tests. There is no
+window or voice input yet, so Potato cannot be used as an app.
 
 | Area | State |
 | --- | --- |
@@ -31,7 +31,9 @@ registered yet, so Potato cannot do anything useful.
 | Attack tests for the gate, and import rules checked in CI | Done |
 | Local model client (Ollama): loopback only, bounded, strict | Done |
 | Conversation turns in two passes, so that outside text cannot trigger a tool | Done |
-| Tools: portfolio, calendar, app launcher, security monitors | Next |
+| Portfolio tools: list, add and remove holdings (typed only, not by voice) | Done |
+| Market prices for the portfolio | Next |
+| Tools: calendar, app launcher, security monitors | Planned |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a

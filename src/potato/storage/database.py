@@ -43,9 +43,11 @@ MAX_VALUE_BYTES: Final = 64 * 1024
 MAX_SYMBOL_CHARACTERS: Final = 10
 MAX_QUANTITY: Final = Decimal(1_000_000_000)
 MAX_QUANTITY_DECIMAL_PLACES: Final = 8
+MAX_PRICE: Final = Decimal(10_000_000)
+MAX_PRICE_DECIMAL_PLACES: Final = 8
 
 # A letter first, then letters, digits, dots or hyphens: "AAPL", "BRK.B".
-_SYMBOL: Final = re.compile(rf"[A-Z][A-Z0-9.\-]{{0,{MAX_SYMBOL_CHARACTERS - 1}}}")
+SYMBOL_PATTERN: Final = re.compile(rf"[A-Z][A-Z0-9.\-]{{0,{MAX_SYMBOL_CHARACTERS - 1}}}")
 
 # --- SQL ------------------------------------------------------------------
 # Every statement Potato runs is one of the constants below.
@@ -68,6 +70,15 @@ _MIGRATIONS: Final = (
         ) STRICT
         """,
         "PRAGMA user_version = 1",
+    ),
+    (
+        # The average price paid per unit. Empty for holdings recorded
+        # before it was asked for.
+        """
+        ALTER TABLE holding ADD COLUMN average_price TEXT
+            CHECK (average_price IS NULL OR length(average_price) BETWEEN 1 AND 32)
+        """,
+        "PRAGMA user_version = 2",
     ),
 )
 
@@ -95,11 +106,12 @@ _COMMIT: Final = "COMMIT"
 _ROLLBACK: Final = "ROLLBACK"
 
 _UPSERT_HOLDING: Final = (
-    "INSERT INTO holding (symbol, quantity) VALUES (?, ?) "
-    "ON CONFLICT (symbol) DO UPDATE SET quantity = excluded.quantity"
+    "INSERT INTO holding (symbol, quantity, average_price) VALUES (?, ?, ?) "
+    "ON CONFLICT (symbol) DO UPDATE SET "
+    "quantity = excluded.quantity, average_price = excluded.average_price"
 )
 _DELETE_HOLDING: Final = "DELETE FROM holding WHERE symbol = ?"
-_SELECT_HOLDINGS: Final = "SELECT symbol, quantity FROM holding ORDER BY symbol"
+_SELECT_HOLDINGS: Final = "SELECT symbol, quantity, average_price FROM holding ORDER BY symbol"
 
 
 class DatabaseError(Exception):
@@ -108,24 +120,33 @@ class DatabaseError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Holding:
-    """How many units of one stock or fund the user holds.
+    """How many units of one stock or fund the user holds, and what they paid.
 
-    Quantities are ``Decimal``, not ``float``, so that 0.1 + 0.2 is exactly
-    0.3. They are stored as text for the same reason.
+    Amounts are ``Decimal``, not ``float``, so that 0.1 + 0.2 is exactly 0.3.
+    They are stored as text for the same reason.
+
+    Attributes:
+        symbol: The ticker symbol, such as ``AAPL``.
+        quantity: How many units are held.
+        average_price: The average price paid per unit, in whatever currency
+            the user thinks of that holding in. ``None`` if not known.
     """
 
     symbol: str
     quantity: Decimal
+    average_price: Decimal | None = None
 
     def __post_init__(self) -> None:
-        """Refuse a symbol or quantity outside the fixed rules."""
+        """Refuse a symbol or amount outside the fixed rules."""
         _require_symbol(self.symbol)
         _require_quantity(self.quantity)
+        if self.average_price is not None:
+            _require_price(self.average_price)
 
 
 def _require_symbol(symbol: object) -> str:
     """Return ``symbol`` if it is a valid ticker symbol, else raise."""
-    if not isinstance(symbol, str) or _SYMBOL.fullmatch(symbol) is None:
+    if not isinstance(symbol, str) or SYMBOL_PATTERN.fullmatch(symbol) is None:
         raise ValueError(
             "a symbol must be 1 to 10 capital letters, digits, dots or hyphens, "
             "starting with a letter"
@@ -148,9 +169,34 @@ def _require_quantity(quantity: object) -> Decimal:
     return quantity
 
 
+def _require_price(price: object) -> Decimal:
+    """Return ``price`` if it is a valid price per unit, else raise."""
+    if not isinstance(price, Decimal) or not price.is_finite():
+        raise ValueError("a price must be a finite Decimal")
+    if not Decimal(0) < price <= MAX_PRICE:
+        raise ValueError(f"a price must be above 0 and at most {MAX_PRICE}")
+    exponent = price.as_tuple().exponent
+    if isinstance(exponent, int) and exponent < -MAX_PRICE_DECIMAL_PLACES:
+        raise ValueError(f"a price can have at most {MAX_PRICE_DECIMAL_PLACES} decimal places")
+    return price
+
+
 def _quantity_to_text(quantity: Decimal) -> str:
-    """Write a quantity as plain digits, never in scientific notation."""
+    """Write an amount as plain digits, never in scientific notation."""
     return format(quantity.normalize(), "f")
+
+
+def _price_from_text(text: object) -> Decimal | None:
+    """Read a stored price back, refusing anything that is not valid."""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise DatabaseError("the database holds a price that is not text")
+    try:
+        return _require_price(Decimal(text))
+    except (InvalidOperation, ValueError):
+        pass
+    raise DatabaseError("the database holds an invalid price")
 
 
 def _quantity_from_text(text: object) -> Decimal:
@@ -236,8 +282,16 @@ class Database:
         return self._read_integer(_READ_USER_VERSION)
 
     def set_holding(self, holding: Holding) -> None:
-        """Record a holding, replacing any earlier quantity for its symbol."""
-        self._write(_UPSERT_HOLDING, (holding.symbol, _quantity_to_text(holding.quantity)))
+        """Record a holding, replacing any earlier one for its symbol."""
+        price = holding.average_price
+        self._write(
+            _UPSERT_HOLDING,
+            (
+                holding.symbol,
+                _quantity_to_text(holding.quantity),
+                None if price is None else _quantity_to_text(price),
+            ),
+        )
 
     def remove_holding(self, symbol: str) -> bool:
         """Remove the holding for ``symbol``.
@@ -262,12 +316,12 @@ class Database:
         except sqlite3.Error as error:
             raise DatabaseError("the holdings could not be read") from error
         result = []
-        for symbol, quantity in rows:
+        for symbol, quantity, price in rows:
             try:
                 symbol = _require_symbol(symbol)
             except ValueError:
                 raise DatabaseError("the database holds an invalid symbol") from None
-            result.append(Holding(symbol, _quantity_from_text(quantity)))
+            result.append(Holding(symbol, _quantity_from_text(quantity), _price_from_text(price)))
         return result
 
     def _prepare(self) -> None:
@@ -318,7 +372,7 @@ class Database:
             raise DatabaseError("the database returned an unexpected value")
         return value
 
-    def _write(self, statement: str, parameters: tuple[str, ...]) -> int:
+    def _write(self, statement: str, parameters: tuple[str | None, ...]) -> int:
         """Run one change in its own transaction and return the rows changed."""
         connection = self._connection
         try:

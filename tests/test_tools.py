@@ -3,6 +3,7 @@
 import dataclasses
 import re
 from collections.abc import Mapping
+from decimal import Decimal
 
 import pytest
 
@@ -11,6 +12,7 @@ from potato.security.tools import (
     ArgumentError,
     ArgumentValue,
     ChoiceField,
+    DecimalField,
     IntegerField,
     RiskLevel,
     TextField,
@@ -130,7 +132,7 @@ def test_badly_built_fields_are_refused(build: object) -> None:
 def test_there_is_no_field_for_free_text_commands_or_paths() -> None:
     # P4: the only text field requires a pattern and a length cap.
     fields = {name for name in vars(tools_module) if name.endswith("Field") and name != "Field"}
-    assert fields == {"TextField", "IntegerField", "ChoiceField"}
+    assert fields == {"TextField", "IntegerField", "ChoiceField", "DecimalField"}
     required = [f.name for f in dataclasses.fields(TextField) if f.default is dataclasses.MISSING]
     assert required == ["pattern", "max_characters"]
 
@@ -257,3 +259,85 @@ def test_the_description_never_includes_the_risk_or_the_handler() -> None:
 def test_descriptions_must_be_short_plain_text(description: object) -> None:
     with pytest.raises(ValueError, match="description"):
         _tool(description=description)
+
+
+# --- Decimal numbers -----------------------------------------------------------
+
+PRICE = DecimalField(Decimal("0.01"), Decimal(1000), max_places=2)
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (1, "1"),
+        (1000, "1000"),
+        (2.5, "2.5"),
+        (0.1, "0.1"),
+        (0.01, "0.01"),
+        (999.99, "999.99"),
+        (12.30, "12.3"),
+        (1e2, "100"),
+        (100.0, "100"),
+    ],
+)
+def test_decimal_field_returns_exact_text(value: object, text: str) -> None:
+    assert PRICE.validate(value) == text
+
+
+def test_what_the_model_wrote_is_what_is_used() -> None:
+    # 0.1 + 0.2 as floats is 0.30000000000000004; as the texts handed on it
+    # adds up exactly.
+    field = DecimalField(Decimal(0), Decimal(10), max_places=8)
+    total = Decimal(field.validate(0.1)) + Decimal(field.validate(0.2))
+    assert total == Decimal("0.3")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2.5", "1", True, False, None, [1], {"value": 1}, b"1", Decimal("2.5"),
+        float("nan"), float("inf"), float("-inf"), 0, 0.001, 1000.01, 1001, -1, 2.555,
+        0.30000000000000004, 1e-300, IntSubclass(5),
+    ],
+)  # fmt: skip
+def test_decimal_field_refuses_everything_else(value: object) -> None:
+    with pytest.raises(ArgumentError):
+        PRICE.validate(value)
+
+
+def test_zero_has_one_spelling() -> None:
+    field = DecimalField(Decimal(-1), Decimal(1), max_places=2)
+    assert field.validate(-0.0) == "0"
+    assert field.validate(0) == "0"
+    assert field.validate(-0.5) == "-0.5"
+
+
+def test_decimal_field_description() -> None:
+    assert PRICE.describe() == {"type": "number", "minimum": 0.01, "maximum": 1000.0}
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: DecimalField(0, Decimal(1), 2),  # type: ignore[arg-type]
+        lambda: DecimalField(Decimal(0), 1.0, 2),  # type: ignore[arg-type]
+        lambda: DecimalField(Decimal("NaN"), Decimal(1), 2),
+        lambda: DecimalField(Decimal(0), Decimal("Infinity"), 2),
+        lambda: DecimalField(Decimal(2), Decimal(1), 2),
+        lambda: DecimalField(Decimal(0), Decimal(10**12 + 1), 2),
+        lambda: DecimalField(Decimal(-(10**12) - 1), Decimal(0), 2),
+        lambda: DecimalField(Decimal(0), Decimal(1), 9),
+        lambda: DecimalField(Decimal(0), Decimal(1), -1),
+        lambda: DecimalField(Decimal(0), Decimal(1), True),
+    ],
+)
+def test_badly_built_decimal_fields_are_refused(build: object) -> None:
+    with pytest.raises(ValueError):
+        build()  # type: ignore[operator]
+
+
+def test_a_tool_can_use_a_decimal_field() -> None:
+    tool = _tool(arguments={"price": PRICE})
+    assert tool.validate({"price": 2.5}) == {"price": "2.5"}
+    with pytest.raises(ArgumentError):
+        tool.validate({"price": "2.5"})
