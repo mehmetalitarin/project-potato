@@ -230,6 +230,13 @@ class Gate:
         reach = REACH[origin] if isinstance(origin, RequestOrigin) else frozenset()
         return tuple(sorted(name for name, tool in self._tools.items() if tool.risk in reach))
 
+    def describe_tools(self, origin: RequestOrigin) -> tuple[dict[str, object], ...]:
+        """Return descriptions of the tools ``origin`` can reach, for the model.
+
+        Like ``available_tools``, a convenience and not the defence.
+        """
+        return tuple(self._tools[name].describe() for name in self.available_tools(origin))
+
     def submit(
         self, proposal: object, origin: RequestOrigin, approval: object = None
     ) -> GateResult:
