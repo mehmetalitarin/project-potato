@@ -4,8 +4,9 @@ A tool definition is written in code and cannot be changed afterwards (P5 and
 R7). The model never supplies any part of it.
 
 Arguments are checked strictly (P3 in ``docs/permissions.md``). Nothing is
-guessed or converted: the text ``"3"`` is not the number 3, ``True`` is not
-1, and 3.0 is not 3. Every argument is required and unknown ones are refused.
+guessed or converted from one kind to another: the text ``"3"`` is not the
+number 3, ``True`` is not 1, and a whole-number field refuses 3.0. Every
+argument is required and unknown ones are refused.
 
 There is on purpose no field type for a command, source code or a file path
 (P4). Text must match a pattern chosen by the tool's author.
@@ -13,9 +14,11 @@ There is on purpose no field type for a command, source code or a file path
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
@@ -27,6 +30,10 @@ MAX_TIMEOUT_SECONDS: Final = 120.0
 MAX_CALLS_PER_PERIOD: Final = 60
 MAX_PERIOD_SECONDS: Final = 3600.0
 MAX_DESCRIPTION_CHARACTERS: Final = 200
+MAX_DECIMAL_PLACES: Final = 8
+# Every whole number up to here is exact as a float, so a JSON number the
+# model writes cannot be silently rounded inside these bounds.
+MAX_DECIMAL_MAGNITUDE: Final = Decimal(10**12)
 
 _NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
@@ -134,7 +141,65 @@ class ChoiceField:
         return {"type": "string", "enum": sorted(self.choices)}
 
 
-Field = TextField | IntegerField | ChoiceField
+@dataclass(frozen=True, slots=True)
+class DecimalField:
+    """A number with up to ``max_places`` decimal places, from ``minimum`` to ``maximum``.
+
+    Accepts a JSON number only: ``2.5`` or ``3``, never the text ``"2.5"``
+    and never ``true``. The value is passed on as exact decimal text, such as
+    ``"2.5"``, so that no rounding happens later. Tools turn it into a
+    ``Decimal`` themselves.
+
+    A number the model writes as ``0.1`` reaches Python as the nearest float.
+    It is read back as the shortest text that gives that float, which is
+    ``"0.1"`` again, so what the model wrote is what is used.
+    """
+
+    minimum: Decimal
+    maximum: Decimal
+    max_places: int
+
+    def __post_init__(self) -> None:
+        """Refuse bounds that are not finite, ordered and within the fixed limits."""
+        for bound in (self.minimum, self.maximum):
+            if type(bound) is not Decimal or not bound.is_finite():
+                raise ValueError("bounds must be finite Decimals")
+            if abs(bound) > MAX_DECIMAL_MAGNITUDE:
+                raise ValueError(f"bounds must be within {MAX_DECIMAL_MAGNITUDE}")
+        if self.minimum > self.maximum:
+            raise ValueError("minimum must not be above maximum")
+        if type(self.max_places) is not int or not 0 <= self.max_places <= MAX_DECIMAL_PLACES:
+            raise ValueError(f"max_places must be from 0 to {MAX_DECIMAL_PLACES}")
+
+    def validate(self, value: object) -> str:
+        """Return ``value`` as exact decimal text if it is acceptable, else raise."""
+        # type(), not isinstance(): True and False are ints in Python.
+        if type(value) is int:
+            number = Decimal(value)
+        elif type(value) is float and math.isfinite(value):
+            number = Decimal(repr(value))
+        else:
+            raise ArgumentError
+        if not self.minimum <= number <= self.maximum:
+            raise ArgumentError
+        exponent = number.as_tuple().exponent
+        if not isinstance(exponent, int) or exponent < -self.max_places:
+            raise ArgumentError
+        if number == 0:
+            # One spelling of zero, never "-0".
+            return "0"
+        return format(number.normalize(), "f")
+
+    def describe(self) -> dict[str, object]:
+        """Describe the field for the model, as JSON Schema."""
+        return {
+            "type": "number",
+            "minimum": float(self.minimum),
+            "maximum": float(self.maximum),
+        }
+
+
+Field = TextField | IntegerField | ChoiceField | DecimalField
 
 ToolHandler = Callable[[Mapping[str, ArgumentValue]], Mapping[str, object]]
 """Runs a tool. Receives validated arguments and returns plain data."""
@@ -177,8 +242,10 @@ class ToolDefinition:
         for name, field in self.arguments.items():
             if type(name) is not str or _NAME.fullmatch(name) is None:
                 raise ValueError("an argument name must be lower-case letters, digits, underscores")
-            if not isinstance(field, TextField | IntegerField | ChoiceField):
-                raise ValueError("an argument must be a TextField, IntegerField or ChoiceField")
+            if not isinstance(field, TextField | IntegerField | ChoiceField | DecimalField):
+                raise ValueError(
+                    "an argument must be a TextField, IntegerField, ChoiceField or DecimalField"
+                )
         if not callable(self.handler):
             raise ValueError("handler must be callable")
         _require_number("timeout_seconds", self.timeout_seconds, MAX_TIMEOUT_SECONDS)

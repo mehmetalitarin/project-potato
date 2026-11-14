@@ -15,6 +15,7 @@ import potato.storage.database as database_module
 from potato.storage.database import (
     APPLICATION_ID,
     DATABASE_FILE_NAME,
+    MAX_PRICE,
     MAX_VALUE_BYTES,
     SCHEMA_VERSION,
     Database,
@@ -100,7 +101,7 @@ def test_journal_file_is_owner_only_even_with_open_umask(database: Database, pat
     connection = database._connection
     connection.execute("BEGIN IMMEDIATE")
     try:
-        connection.execute("INSERT INTO holding VALUES ('AAPL', '1')")
+        connection.execute("INSERT INTO holding (symbol, quantity) VALUES ('AAPL', '1')")
         journal = path.with_name(path.name + "-journal")
         assert journal.exists()
         assert _mode(journal) == 0o600
@@ -230,9 +231,9 @@ def test_schema_refuses_bad_symbols_even_without_python_checks(
     with _raw(path) as raw:
         for bad in ["aapl", "A'B", "", "AAPLXXXXXXX", "1A"]:
             with pytest.raises(sqlite3.IntegrityError):
-                raw.execute("INSERT INTO holding VALUES (?, '1')", (bad,))
+                raw.execute("INSERT INTO holding (symbol, quantity) VALUES (?, '1')", (bad,))
         with pytest.raises(sqlite3.IntegrityError):
-            raw.execute("INSERT INTO holding VALUES ('AAPL', NULL)")
+            raw.execute("INSERT INTO holding (symbol, quantity) VALUES ('AAPL', NULL)")
 
 
 @pytest.mark.parametrize("quantity", ["NaN", "-1", "0", "abc", "1e999", "0.000000001"])
@@ -240,7 +241,7 @@ def test_tampered_quantity_is_refused_when_read(
     database: Database, path: Path, quantity: str
 ) -> None:
     with _raw(path) as raw:
-        raw.execute("INSERT INTO holding VALUES ('AAPL', ?)", (quantity,))
+        raw.execute("INSERT INTO holding (symbol, quantity) VALUES ('AAPL', ?)", (quantity,))
     with pytest.raises(DatabaseError, match="invalid quantity"):
         database.holdings()
 
@@ -509,7 +510,7 @@ def test_wal_mode_left_in_the_file_is_switched_off(path: Path) -> None:
 
 
 def test_failed_write_is_rolled_back(database: Database) -> None:
-    insert = "INSERT INTO holding VALUES (?, ?)"
+    insert = "INSERT INTO holding (symbol, quantity) VALUES (?, ?)"
     with pytest.raises(DatabaseError, match="could not be changed"):
         database._write(insert, ("not valid", "1"))
     assert not database._connection.in_transaction
@@ -523,12 +524,14 @@ def test_failed_migration_is_rolled_back(database: Database) -> None:
     assert not database._connection.in_transaction
 
 
-def _replace_with_unchecked_table(path: Path, symbol: object, quantity: object) -> None:
+def _replace_with_unchecked_table(
+    path: Path, symbol: object, quantity: object, price: object = None
+) -> None:
     """Simulate a file edited outside Potato: same header, no table rules."""
     with _raw(path) as raw:
         raw.execute("DROP TABLE holding")
-        raw.execute("CREATE TABLE holding (symbol, quantity)")
-        raw.execute("INSERT INTO holding VALUES (?, ?)", (symbol, quantity))
+        raw.execute("CREATE TABLE holding (symbol, quantity, average_price)")
+        raw.execute("INSERT INTO holding VALUES (?, ?, ?)", (symbol, quantity, price))
 
 
 def test_tampered_symbol_is_refused_when_read(database: Database, path: Path) -> None:
@@ -560,3 +563,70 @@ def test_connection_is_closed_when_opening_fails(
         Database(path)
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         opened[0].execute("SELECT 1")
+
+
+# --- Average prices and the upgrade to schema version 2 ----------------------
+
+
+def test_average_prices_are_stored_and_read_back(database: Database, path: Path) -> None:
+    database.set_holding(Holding("AAPL", Decimal("2.5"), Decimal("150.25")))
+    database.set_holding(Holding("MSFT", Decimal(1)))
+    assert database.holdings() == [
+        Holding("AAPL", Decimal("2.5"), Decimal("150.25")),
+        Holding("MSFT", Decimal(1), None),
+    ]
+    with _raw(path) as raw:
+        rows = raw.execute("SELECT symbol, average_price FROM holding ORDER BY symbol")
+        assert rows.fetchall() == [("AAPL", "150.25"), ("MSFT", None)]
+
+
+def test_replacing_a_holding_replaces_its_price_too(database: Database) -> None:
+    database.set_holding(Holding("AAPL", Decimal(1), Decimal(100)))
+    database.set_holding(Holding("AAPL", Decimal(2), None))
+    assert database.holdings() == [Holding("AAPL", Decimal(2), None)]
+
+
+@pytest.mark.parametrize(
+    "price",
+    [Decimal(0), Decimal(-1), Decimal("NaN"), Decimal("Infinity"), MAX_PRICE + 1,
+     Decimal("0.000000001"), 1.5, "1"],
+)  # fmt: skip
+def test_invalid_prices_are_refused(price: object) -> None:
+    with pytest.raises(ValueError, match="price"):
+        Holding("AAPL", Decimal(1), price)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("price", ["NaN", "-1", "0", "abc", "1e999", ""])
+def test_tampered_price_is_refused_when_read(database: Database, path: Path, price: str) -> None:
+    _replace_with_unchecked_table(path, "AAPL", "1", price)
+    with pytest.raises(DatabaseError, match="invalid price"):
+        database.holdings()
+
+
+def test_tampered_price_type_is_refused_when_read(database: Database, path: Path) -> None:
+    _replace_with_unchecked_table(path, "AAPL", "1", 5)
+    with pytest.raises(DatabaseError, match="price that is not text"):
+        database.holdings()
+
+
+def test_the_schema_refuses_an_oversized_price(database: Database, path: Path) -> None:
+    with _raw(path) as raw, pytest.raises(sqlite3.IntegrityError):
+        raw.execute("INSERT INTO holding VALUES ('AAPL', '1', ?)", ("1" * 33,))
+
+
+def test_a_version_1_database_is_upgraded_and_keeps_its_holdings(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(database_module, "_MIGRATIONS", database_module._MIGRATIONS[:1])
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 1)
+    with Database(path) as old:
+        assert old.schema_version == 1
+        old._connection.execute("INSERT INTO holding VALUES ('AAPL', '2.5')")
+    monkeypatch.undo()
+
+    with Database(path) as upgraded:
+        assert upgraded.schema_version == 2
+        assert upgraded.holdings() == [Holding("AAPL", Decimal("2.5"), None)]
+        upgraded.set_holding(Holding("AAPL", Decimal("2.5"), Decimal(100)))
+    with Database(path) as reopened:
+        assert reopened.holdings() == [Holding("AAPL", Decimal("2.5"), Decimal(100))]

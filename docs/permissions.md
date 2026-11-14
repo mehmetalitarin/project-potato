@@ -3,8 +3,10 @@
 > **Status: design document.** The gate itself is built
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
 > file, and so are physical approvals (`approvals.py`). The approval dialog
-> arrives with the interface. No real tool is registered yet: the planned
-> tools arrive in later milestones.
+> arrives with the interface. The portfolio tools are built
+> (`src/potato/modules/portfolio.py`); the other planned tools arrive in later
+> milestones. A test checks that each built tool appears in the table below
+> with the same risk level.
 
 Related documents: [threat model](threat_model.md),
 [architecture](architecture.md).
@@ -92,7 +94,7 @@ tool, and a tool that is not in this table must not be in the code.
 | Tool | What it does | Arguments from the model | Risk |
 | --- | --- | --- | --- |
 | `open_app` | Opens an approved application | One name from a fixed list | Low |
-| `portfolio_summary` | Shows holdings, value, profit and loss | None | Low |
+| `portfolio_summary` | Shows holdings and what they cost; value, profit and loss arrive with market data | None | Low |
 | `portfolio_add_holding` | Records a holding | Symbol (strict pattern), quantity, average price (bounded numbers) | Medium |
 | `portfolio_remove_holding` | Removes a holding | Symbol (strict pattern) | Medium |
 | `calendar_upcoming` | Lists upcoming events | Number of days, bounded | Low |
