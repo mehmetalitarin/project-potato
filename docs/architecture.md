@@ -111,7 +111,7 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 | R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI (`tests/test_architecture.py`). | Done |
 | R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules and `tests/test_architecture.py`, both active now. No module may start a process yet; the single one is named in that test when it is built. | Partly done |
 | R4 | **Only the interface creates approvals.** The object that makes approvals is handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package refers to it, and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Partly done |
-| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | An import contract on networking libraries (`tests/test_architecture.py`), and a test that watches the Ollama client for any socket being bound (`tests/test_ollama.py`). | Done |
+| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | An import contract on networking libraries (`tests/test_architecture.py`), and tests that watch the Ollama client and the market data client for any socket being bound (`tests/test_ollama.py`, `tests/test_market_data.py`). | Done |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results, in front of a fake model that obeys everything it reads, and assert that no call follows (`tests/test_turns.py`). | Done |
 | R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
 | R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Partly done |
@@ -174,7 +174,7 @@ planned for version 1.0.
 | To | When | What is sent |
 | --- | --- | --- |
 | Ollama on `127.0.0.1` | Whenever the model is used | Prompts. Never leaves the Mac (T-LLM-6). |
-| Market data API, over TLS | When prices are refreshed, if the integration is enabled | Ticker symbols and the API key. No quantities (T-NET-4). |
+| Finnhub (`finnhub.io`), over verified TLS | When prices are refreshed, if the user has stored an API key | One ticker symbol per request, and the API key in a header. No quantities (T-NET-4). |
 | Vulnerability database | When the user runs a dependency scan | Names and versions of Potato's own Python packages. |
 | Apple's update service | When the user asks for a security update check | Made by Apple's own tool, not by Potato's code. |
 
