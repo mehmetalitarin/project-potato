@@ -26,6 +26,7 @@ MAX_CHOICES: Final = 64
 MAX_TIMEOUT_SECONDS: Final = 120.0
 MAX_CALLS_PER_PERIOD: Final = 60
 MAX_PERIOD_SECONDS: Final = 3600.0
+MAX_DESCRIPTION_CHARACTERS: Final = 200
 
 _NAME: Final = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
@@ -74,6 +75,14 @@ class TextField:
             raise ArgumentError
         return value
 
+    def describe(self) -> dict[str, object]:
+        """Describe the field for the model, as JSON Schema."""
+        return {
+            "type": "string",
+            "maxLength": self.max_characters,
+            "pattern": self.pattern.pattern,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class IntegerField:
@@ -96,6 +105,10 @@ class IntegerField:
             raise ArgumentError
         return value
 
+    def describe(self) -> dict[str, object]:
+        """Describe the field for the model, as JSON Schema."""
+        return {"type": "integer", "minimum": self.minimum, "maximum": self.maximum}
+
 
 @dataclass(frozen=True, slots=True)
 class ChoiceField:
@@ -115,6 +128,10 @@ class ChoiceField:
         if type(value) is not str or value not in self.choices:
             raise ArgumentError
         return value
+
+    def describe(self) -> dict[str, object]:
+        """Describe the field for the model, as JSON Schema."""
+        return {"type": "string", "enum": sorted(self.choices)}
 
 
 Field = TextField | IntegerField | ChoiceField
@@ -136,6 +153,8 @@ class ToolDefinition:
         timeout_seconds: How long the handler may take.
         max_calls: How many calls are accepted per ``period_seconds``.
         period_seconds: The length of the rate-limit window.
+        description: One plain sentence telling the model what the tool
+            does. Written in code like the rest; never taken from data.
     """
 
     name: str
@@ -145,6 +164,7 @@ class ToolDefinition:
     timeout_seconds: float = 10.0
     max_calls: int = 10
     period_seconds: float = 60.0
+    description: str = ""
 
     def __post_init__(self) -> None:
         """Validate the definition and freeze the arguments."""
@@ -165,9 +185,39 @@ class ToolDefinition:
         _require_number("period_seconds", self.period_seconds, MAX_PERIOD_SECONDS)
         if type(self.max_calls) is not int or not 1 <= self.max_calls <= MAX_CALLS_PER_PERIOD:
             raise ValueError(f"max_calls must be from 1 to {MAX_CALLS_PER_PERIOD}")
+        if (
+            type(self.description) is not str
+            or len(self.description) > MAX_DESCRIPTION_CHARACTERS
+            or not (self.description.isprintable() and self.description.isascii())
+        ):
+            raise ValueError(
+                f"description must be plain text of at most {MAX_DESCRIPTION_CHARACTERS} characters"
+            )
         # A private, read-only copy: later changes to the caller's dict have
         # no effect on what the gate accepts.
         object.__setattr__(self, "arguments", MappingProxyType(dict(self.arguments)))
+
+    def describe(self) -> dict[str, object]:
+        """Describe the tool for the model, in the format Ollama expects.
+
+        This helps the model ask correctly. It is not a check: the gate
+        validates every proposal whatever the model was told.
+        """
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        name: field.describe() for name, field in self.arguments.items()
+                    },
+                    "required": sorted(self.arguments),
+                    "additionalProperties": False,
+                },
+            },
+        }
 
     def validate(self, arguments: object) -> dict[str, ArgumentValue]:
         """Return a fresh dict of validated arguments, else raise.

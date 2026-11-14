@@ -216,3 +216,44 @@ def test_definition_cannot_be_changed_afterwards() -> None:
 def test_badly_built_tools_are_refused(changes: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         _tool(**changes)
+
+
+# --- Describing a tool to the model ------------------------------------------
+
+
+def test_a_tool_is_described_in_the_format_the_model_expects() -> None:
+    tool = _tool(
+        arguments={"symbol": SYMBOL, "days": DAYS, "app": APP},
+        description="Shows an example.",
+    )
+    assert tool.describe() == {
+        "type": "function",
+        "function": {
+            "name": "example",
+            "description": "Shows an example.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "maxLength": 5, "pattern": "[A-Z]{1,5}"},
+                    "days": {"type": "integer", "minimum": 1, "maximum": 14},
+                    "app": {"type": "string", "enum": ["Notes", "Safari"]},
+                },
+                "required": ["app", "days", "symbol"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def test_the_description_never_includes_the_risk_or_the_handler() -> None:
+    text = repr(_tool(risk=RiskLevel.SENSITIVE).describe())
+    assert "sensitive" not in text
+    assert "handler" not in text
+
+
+@pytest.mark.parametrize(
+    "description", ["x" * 201, "line\nbreak", "tab\there", "café", "bell\x07", 5, None]
+)
+def test_descriptions_must_be_short_plain_text(description: object) -> None:
+    with pytest.raises(ValueError, match="description"):
+        _tool(description=description)

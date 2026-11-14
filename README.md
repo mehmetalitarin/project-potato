@@ -14,7 +14,8 @@ manager.
 implemented yet. This repository currently contains the package structure,
 tooling configuration, security documentation, validated settings, logging,
 a local database, the assistant's state rules, the permission manager, a
-client for the local model and tests.
+client for the local model, the conversation logic and tests. No tool is
+registered yet, so Potato cannot do anything useful.
 
 | Area | State |
 | --- | --- |
@@ -29,7 +30,8 @@ client for the local model and tests.
 | Physical approvals: single-use, expiring tokens bound to one exact action | Done |
 | Attack tests for the gate, and import rules checked in CI | Done |
 | Local model client (Ollama): loopback only, bounded, strict | Done |
-| Conversation turns that resist prompt injection | Next |
+| Conversation turns in two passes, so that outside text cannot trigger a tool | Done |
+| Tools: portfolio, calendar, app launcher, security monitors | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a

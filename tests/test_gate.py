@@ -427,6 +427,15 @@ def test_available_tools_follow_the_reach_table(gate: Gate) -> None:
     assert gate.available_tools("voice") == ()  # type: ignore[arg-type]
 
 
+def test_described_tools_follow_the_reach_table_too(gate: Gate) -> None:
+    def names(origin: RequestOrigin) -> list[object]:
+        return [tool["function"]["name"] for tool in gate.describe_tools(origin)]  # type: ignore[index]
+
+    assert names(VOICE) == ["open_app"]
+    assert names(TYPED) == ["add_holding", "open_app", "wipe_everything"]
+    assert gate.describe_tools("voice") == ()  # type: ignore[arg-type]
+
+
 # --- 0 and 6. Limits (P8) ----------------------------------------------------
 
 
