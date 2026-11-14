@@ -13,8 +13,8 @@ manager.
 **Pre-alpha: foundations only.** Nothing in the feature list below is
 implemented yet. This repository currently contains the package structure,
 tooling configuration, security documentation, validated settings, logging,
-a local database, the assistant's state rules, the permission manager and
-tests.
+a local database, the assistant's state rules, the permission manager, a
+client for the local model and tests.
 
 | Area | State |
 | --- | --- |
@@ -28,7 +28,8 @@ tests.
 | Permission manager: allowlist, strict arguments, origin limits, rate and time limits | Done |
 | Physical approvals: single-use, expiring tokens bound to one exact action | Done |
 | Attack tests for the gate, and import rules checked in CI | Done |
-| Local model client (Ollama) | Next |
+| Local model client (Ollama): loopback only, bounded, strict | Done |
+| Conversation turns that resist prompt injection | Next |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
