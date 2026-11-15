@@ -15,7 +15,8 @@ repository currently contains the package structure, tooling configuration,
 security documentation, validated settings, logging, a local database, the
 assistant's state rules, the permission manager, a client for the local
 model, the conversation logic, the portfolio tools, a phishing link
-analyser, an application launcher, a market data client and tests. There is no
+analyser, an application launcher, read-only calendar and deadline tools, a
+market data client and tests. There is no
 window or voice input yet, so Potato cannot be used as an app.
 
 | Area | State |
@@ -37,8 +38,8 @@ window or voice input yet, so Potato cannot be used as an app.
 | Phishing link analyser: text only, never opens the link | Done |
 | Check that no file hides or reverses text (Trojan Source) | Done |
 | Application launcher: Apple's apps only, checked to be the system-installed copy before opening | Done |
-| Calendar and homework deadlines (read-only) | Next |
-| Tools: security monitors | Planned |
+| Calendar and homework deadlines from Apple Calendar, read-only | Done |
+| Security monitors: posture, processes, network | Next |
 | Live prices in the portfolio summary (optional; needs a Finnhub key) | Set aside |
 | Everything else | Not started |
 

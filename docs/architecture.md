@@ -164,7 +164,7 @@ arrive in M7 and follow these states.
 | Audio | Memory only | Never written to disk (T-VOICE-4). |
 | Conversation | Memory only | Not logged (T-DATA-4). |
 | Approval signing key | Memory only | New at every start (T-APPR-3). |
-| Calendar events | Read on demand | Not copied into the database. |
+| Calendar events | Read on demand from Apple Calendar, through EventKit | Title, times and calendar name only. Not copied into the database, and not logged. |
 
 ## Network connections
 

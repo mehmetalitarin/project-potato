@@ -95,6 +95,13 @@ strict = true
 warn_unreachable = true
 files = ["src", "tests"]
 
+# PyObjC ships no type information, and is not installed on Linux at all.
+# Only potato.integrations.calendar may import it (tests/test_architecture.py),
+# and it treats everything from it as untyped.
+[[tool.mypy.overrides]]
+module = ["EventKit", "Foundation"]
+ignore_missing_imports = true
+
 # --- pytest -----------------------------------------------------------------
 
 [tool.pytest.ini_options]
