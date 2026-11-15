@@ -3,8 +3,8 @@
 > **Status: design document.** The gate itself is built
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
 > file, and so are physical approvals (`approvals.py`). The approval dialog
-> arrives with the interface. The portfolio tools and the link analyser are
-> built (`src/potato/modules/`); the other planned tools arrive in later
+> arrives with the interface. The portfolio tools, the link analyser and the
+> application launcher are built (`src/potato/modules/`); the other planned tools arrive in later
 > milestones. A test checks that each built tool appears in the table below
 > with the same risk level.
 
