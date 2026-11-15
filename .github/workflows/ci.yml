@@ -40,6 +40,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Runtime dependencies are macOS only. They are installed first, from
+      # the lock file, and every file must match a recorded hash.
+      - name: Install pinned runtime dependencies
+        if: runner.os == 'macOS'
+        run: python -m pip install --require-hashes -r requirements.txt
+
       - name: Install project and dev tools
         run: |
           python -m pip install --upgrade pip
@@ -81,6 +87,11 @@ jobs:
       # It never upgrades or installs anything to "fix" them.
       - name: pip-audit
         run: pip-audit --skip-editable
+
+      # The runtime dependencies are macOS only, so they are not installed
+      # here. Their pinned versions are checked from the lock file instead.
+      - name: pip-audit (locked runtime dependencies)
+        run: pip-audit -r requirements.txt --require-hashes --disable-pip
 
   secret-scan:
     name: Secret scan (Gitleaks)

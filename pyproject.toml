@@ -24,7 +24,12 @@ classifiers = [
     "Private :: Do Not Upload",
 ]
 # Runtime dependencies are added one milestone at a time, each with a reason.
-dependencies = []
+# Exact versions and hashes are pinned in requirements.txt (T-SUPPLY-1).
+dependencies = [
+    # Apple's EventKit, to read Apple Calendar. PyObjC is the long-standing
+    # bridge from Python to macOS frameworks. macOS only.
+    "pyobjc-framework-EventKit>=13.0; sys_platform == 'darwin'",
+]
 
 [project.optional-dependencies]
 dev = [

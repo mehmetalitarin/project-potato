@@ -15,12 +15,30 @@ rights are needed.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+python -m pip install --require-hashes -r requirements.txt
 python -m pip install -e ".[dev]"
 pre-commit install
 ```
 
 If `python3 --version` reports something older than 3.12, use `python3.12`
 in the first line instead.
+
+The second `pip install` line installs Potato's runtime dependencies from
+`requirements.txt`, which pins each one to an exact version and the hashes
+of its files. pip refuses any file whose hash does not match.
+
+## Adding or updating a dependency
+
+Every runtime dependency needs a reason, written as a comment next to it in
+`pyproject.toml`. After changing the list, regenerate the lock file with the
+command at the top of `requirements.txt`, and check the result with:
+
+```bash
+pip-audit -r requirements.txt --require-hashes --disable-pip
+```
+
+Tests fail if a dependency has no reason, is missing from the lock file, or
+is locked without hashes.
 
 ## How a change reaches `main`
 
