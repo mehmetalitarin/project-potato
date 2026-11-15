@@ -27,9 +27,8 @@ ALLOWED: dict[str, frozenset[str]] = {
 # R2: the one part of "integrations" the orchestrator may use.
 CORE_MAY_IMPORT_FROM_INTEGRATIONS = "potato.integrations.ollama"
 
-# R3: modules allowed to start a process. None exist yet. The single probe
-# module in "integrations" is added here in the commit that creates it.
-MAY_START_PROCESSES: frozenset[str] = frozenset()
+# R3: the one module allowed to start a process.
+MAY_START_PROCESSES: frozenset[str] = frozenset({"potato.integrations.processes"})
 
 STARTS_PROCESSES = frozenset({"subprocess", "pty", "multiprocessing", "pexpect", "sh"})
 RUNS_OR_LOADS_CODE = frozenset(
