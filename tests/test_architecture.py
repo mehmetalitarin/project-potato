@@ -30,6 +30,14 @@ CORE_MAY_IMPORT_FROM_INTEGRATIONS = "potato.integrations.ollama"
 # R3: the one module allowed to start a process.
 MAY_START_PROCESSES: frozenset[str] = frozenset({"potato.integrations.processes"})
 
+# PyObjC reaches any macOS framework, so only the calendar integration may
+# use it (T-TOOL-2).
+MAY_USE_PYOBJC: frozenset[str] = frozenset({"potato.integrations.calendar"})
+PYOBJC = frozenset(
+    {"objc", "PyObjCTools", "Foundation", "AppKit", "Cocoa", "CoreFoundation", "EventKit",
+     "Contacts", "Security", "ScriptingBridge", "Quartz", "CoreServices"}
+)  # fmt: skip
+
 STARTS_PROCESSES = frozenset({"subprocess", "pty", "multiprocessing", "pexpect", "sh"})
 RUNS_OR_LOADS_CODE = frozenset(
     {"importlib", "runpy", "code", "codeop", "ctypes", "pickle", "marshal", "shelve", "imp"}
@@ -184,6 +192,14 @@ def test_nothing_listens_for_connections(path: Path) -> None:
             )
 
 
+@pytest.mark.parametrize("path", FILES, ids=IDS)
+def test_only_the_calendar_integration_uses_pyobjc(path: Path) -> None:
+    if _module_name(path) in MAY_USE_PYOBJC:
+        return
+    for name in _imports(path):
+        assert not _matches(name, PYOBJC), f"imports {name}"
+
+
 # --- The checks themselves are checked ---------------------------------------
 
 
@@ -202,6 +218,7 @@ HIDDEN = test_no_relative_or_hidden_imports
 R3 = test_nothing_starts_a_process_or_runs_text_as_code
 R5 = test_networking_lives_only_in_integrations
 LISTEN = test_nothing_listens_for_connections
+PYOBJC_RULE = test_only_the_calendar_integration_uses_pyobjc
 
 
 @pytest.mark.parametrize(
@@ -238,6 +255,11 @@ LISTEN = test_nothing_listens_for_connections
         ("ui/x.py", "from http import client\n", R5),
         ("integrations/x.py", "import http.server\n", LISTEN),
         ("integrations/x.py", "import socket\ns = socket.socket()\ns.listen()\n", LISTEN),
+        ("modules/x.py", "import EventKit\n", PYOBJC_RULE),
+        ("integrations/x.py", "from Foundation import NSDate\n", PYOBJC_RULE),
+        ("integrations/x.py", "def f():\n    import objc\n", PYOBJC_RULE),
+        ("ui/x.py", "import AppKit\n", PYOBJC_RULE),
+        ("integrations/x.py", "import Security\n", PYOBJC_RULE),
     ],
 )  # fmt: skip
 def test_each_rule_catches_a_planted_violation(
@@ -259,6 +281,7 @@ def test_allowed_imports_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         ("integrations/x.py", "import socket\nimport http.client\n"),
         ("voice/x.py", "from potato.core.state import StateManager\nimport os\nos.getuid()\n"),
         ("storage/x.py", "from potato.security.private_files import ensure_private_directory\n"),
+        ("integrations/calendar.py", "import EventKit\nfrom Foundation import NSDate\n"),
     ]  # fmt: skip
     for relative, text in fine:
         path = _write(tmp_path, relative, text)
@@ -269,3 +292,4 @@ def test_allowed_imports_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         test_nothing_starts_a_process_or_runs_text_as_code(path)
         test_networking_lives_only_in_integrations(path)
         test_nothing_listens_for_connections(path)
+        test_only_the_calendar_integration_uses_pyobjc(path)

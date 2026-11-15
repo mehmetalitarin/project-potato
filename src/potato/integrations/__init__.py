@@ -1,10 +1,10 @@
 """Integrations: the only code that talks to anything outside the process.
 
 So far: ``ollama``, the client for the local model server; ``market_data``,
-the client for market prices; and ``processes``, the only code allowed to
-start another program.
+the client for market prices; ``processes``, the only code allowed to start
+another program; and ``calendar``, which reads Apple Calendar, read-only.
 
-Planned: Apple Calendar and read-only system probes.
+Planned: read-only system probes.
 
 Boundary: integrations accept typed, validated arguments only. They never
 accept free-form text from the model, and everything they return is treated
