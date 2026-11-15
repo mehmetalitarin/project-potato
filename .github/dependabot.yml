@@ -1,7 +1,8 @@
 version: 2
 
 updates:
-  # Python packages declared in pyproject.toml.
+  # Python packages declared in pyproject.toml and pinned, with hashes, in
+  # requirements.txt.
   - package-ecosystem: pip
     directory: /
     schedule:

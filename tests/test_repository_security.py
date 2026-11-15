@@ -110,3 +110,61 @@ def test_no_file_hides_or_reorders_text() -> None:
                 assert category not in {"Cf", "Cc", "Co", "Cs"} or character == "\t", (
                     f"{path.relative_to(ROOT)} line {number} has U+{ord(character):04X}"
                 )
+
+
+# --- The lock file (T-SUPPLY-1) ----------------------------------------------
+
+LOCK = ROOT / "requirements.txt"
+_PIN = re.compile(r"^([a-z0-9][a-z0-9._-]*)==([0-9][0-9A-Za-z.]*) \\$", re.M)
+
+
+def _lock_entries() -> dict[str, list[str]]:
+    """Each pinned package in the lock file, with its recorded hashes."""
+    text = LOCK.read_text(encoding="utf-8")
+    entries: dict[str, list[str]] = {}
+    for block in re.split(r"\n(?=[a-z0-9])", text.split("\n", 2)[2]):
+        pin = _PIN.match(block)
+        assert pin, f"not an exact pin: {block.splitlines()[0]}"
+        entries[pin.group(1)] = re.findall(r"--hash=sha256:([0-9a-f]{64})\b", block)
+    return entries
+
+
+def _runtime_dependencies() -> list[str]:
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as file:
+        project = tomllib.load(file)["project"]
+    names = []
+    for requirement in project["dependencies"]:
+        name = re.match(r"[A-Za-z0-9._-]+", requirement)
+        assert name is not None
+        names.append(name.group(0).lower().replace("_", "-"))
+    return names
+
+
+def test_every_locked_package_has_an_exact_version_and_hashes() -> None:
+    entries = _lock_entries()
+    assert entries
+    for name, hashes in entries.items():
+        assert hashes, f"{name} has no recorded hash"
+
+
+def test_every_runtime_dependency_is_in_the_lock_file() -> None:
+    entries = _lock_entries()
+    for name in _runtime_dependencies():
+        assert name in entries, f"{name} is not in requirements.txt"
+
+
+def test_every_runtime_dependency_says_why_it_is_there() -> None:
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    block = text.split("dependencies = [", 1)[1].split("]", 1)[0]
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    for number, line in enumerate(lines):
+        if line.startswith('"'):
+            assert number > 0 and lines[number - 1].startswith("#"), line
+
+
+def test_ci_installs_runtime_dependencies_only_from_hashes() -> None:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pip install --require-hashes -r requirements.txt" in text
+    assert "pip-audit -r requirements.txt --require-hashes" in text

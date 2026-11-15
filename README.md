@@ -101,7 +101,7 @@ what is planned.
 - macOS on Apple silicon
 - Python 3.12 or newer
 
-Ollama is not needed yet.
+Ollama is needed for conversations; see [The local model](#the-local-model).
 
 ## Development setup
 
@@ -109,6 +109,7 @@ Ollama is not needed yet.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
+python -m pip install --require-hashes -r requirements.txt
 python -m pip install -e ".[dev]"
 pre-commit install     # run secret scanning and linting on every commit
 ```
