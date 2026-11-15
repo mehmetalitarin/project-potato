@@ -78,6 +78,9 @@ convention = "google"
 "tests/**" = ["S101", "D"]
 # The command-line entry point is the one place allowed to print.
 "src/potato/__main__.py" = ["T20"]
+# The link analyser lists lookalike letters on purpose: recognising them is its job.
+"src/potato/modules/link_analysis.py" = ["RUF001"]
+"tests/test_link_analysis.py" = ["S101", "D", "RUF001"]
 
 # --- mypy: static typing ----------------------------------------------------
 

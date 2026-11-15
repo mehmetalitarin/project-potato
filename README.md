@@ -14,8 +14,8 @@ manager.
 repository currently contains the package structure, tooling configuration,
 security documentation, validated settings, logging, a local database, the
 assistant's state rules, the permission manager, a client for the local
-model, the conversation logic, the portfolio tools, a market data client
-and tests. There is no
+model, the conversation logic, the portfolio tools, a phishing link
+analyser, a market data client and tests. There is no
 window or voice input yet, so Potato cannot be used as an app.
 
 | Area | State |
@@ -34,9 +34,11 @@ window or voice input yet, so Potato cannot be used as an app.
 | Conversation turns in two passes, so that outside text cannot trigger a tool | Done |
 | Portfolio tools: list, add and remove holdings (typed only, not by voice) | Done |
 | Market data client: verified TLS to one fixed address, bounded, strict | Done |
-| API key in the macOS Keychain | Next |
-| Live prices in the portfolio summary | Planned |
-| Tools: calendar, app launcher, security monitors | Planned |
+| Phishing link analyser: text only, never opens the link | Done |
+| Check that no file hides or reverses text (Trojan Source) | Done |
+| Application launcher | Next |
+| Tools: calendar and homework deadlines, security monitors | Planned |
+| Live prices in the portfolio summary (optional; needs a Finnhub key) | Set aside |
 | Everything else | Not started |
 
 This README is updated as each milestone lands. It will never describe a
@@ -166,8 +168,8 @@ that one address.
 A free Finnhub key covers US-listed shares only, so holdings listed
 elsewhere get no live price. Prices are for display. Potato never trades.
 
-The client is built, but Potato cannot use it yet: storing the key in the
-macOS Keychain comes next.
+The client is built and tested, but nothing uses it yet. Live prices are
+optional and set aside for now, so Potato stores no credentials at all.
 
 ## Settings
 
