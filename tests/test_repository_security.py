@@ -5,6 +5,7 @@ They fail if a later change quietly weakens the supply-chain protections.
 """
 
 import re
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -75,3 +76,37 @@ def test_dependabot_watches_python_and_actions() -> None:
 
     assert "package-ecosystem: pip" in text
     assert "package-ecosystem: github-actions" in text
+
+
+# --- Hidden characters (Trojan Source) ---------------------------------------
+
+_TEXT_SUFFIXES = {".py", ".md", ".toml", ".yml", ".yaml", ".cfg", ".txt"}
+_SKIPPED_FOLDERS = {".git", ".venv", "venv", "__pycache__", ".mypy_cache", ".ruff_cache",
+                    ".pytest_cache", "build", "dist", "node_modules"}  # fmt: skip
+
+
+def _text_files() -> list[Path]:
+    """Every text file of the project itself, without tool caches or environments."""
+    files = []
+    for path in ROOT.rglob("*"):
+        parts = set(path.relative_to(ROOT).parts)
+        if parts & _SKIPPED_FOLDERS or any(part.endswith(".egg-info") for part in parts):
+            continue
+        if path.is_file() and (path.suffix in _TEXT_SUFFIXES or path.name == ".gitignore"):
+            files.append(path)
+    return files
+
+
+def test_no_file_hides_or_reorders_text() -> None:
+    # Invisible and right-to-left control characters can make code read
+    # differently from how it runs. Tests write them as escapes instead.
+    files = _text_files()
+    assert len(files) > 20
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), start=1):
+            for character in line:
+                category = unicodedata.category(character)
+                assert category not in {"Cf", "Cc", "Co", "Cs"} or character == "\t", (
+                    f"{path.relative_to(ROOT)} line {number} has U+{ord(character):04X}"
+                )
