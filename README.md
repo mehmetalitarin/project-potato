@@ -39,9 +39,10 @@ tools and the main window, all tested.
 | Security posture: FileVault, firewall, Gatekeeper, SIP | Done |
 | Process overview (never reads command lines) | Done |
 | Network overview (never shows remote addresses) | Done |
+| Security update check (lists only, never installs) | Done |
 | Desktop window: typed chat and Potato's state, plain text only | Done |
 | Approval dialog | Next |
-| Dependency scan and security update check | Not started |
+| Dependency scan | Not started |
 | Voice: wake word, speech-to-text, text-to-speech | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
 
@@ -54,8 +55,8 @@ I only mark something as done once it's built and tested.
 - Track a stock portfolio (no trading, no brokerage logins)
 - Read my calendar and summarise homework deadlines
 - Open apps from a fixed list
-- Security tools: posture check, process and network overviews, dependency
-  scanning, phishing link analysis
+- Security tools: posture check, process and network overviews, update
+  check, dependency scanning, phishing link analysis
 - A security dashboard and audit log
 
 Things I'm deliberately **not** building: email, messaging, calls, touching
