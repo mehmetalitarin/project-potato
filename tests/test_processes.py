@@ -15,6 +15,7 @@ import pytest
 
 import potato.integrations.processes as processes
 from potato.integrations.processes import (
+    MAX_LISTING_OUTPUT_BYTES,
     MAX_PROBE_OUTPUT_BYTES,
     PROBE_TIMEOUT_SECONDS,
     Probe,
@@ -43,13 +44,30 @@ def test_the_probes_are_exactly_these_commands() -> None:
         "FIREWALL": ("/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate"),
         "GATEKEEPER": ("/usr/sbin/spctl", "--status"),
         "SYSTEM_INTEGRITY": ("/usr/bin/csrutil", "status"),
-    }
+        "PROCESSES": (
+            "/bin/ps", "-ax", "-o", "pid=", "-o", "pcpu=", "-o", "rss=", "-o", "uid=",
+            "-o", "ucomm=",
+        ),
+    }  # fmt: skip
+
+
+def test_the_process_list_never_asks_for_command_lines() -> None:
+    # T-TOOL-4: arguments and environment variables can hold secrets.
+    _, *arguments = Probe.PROCESSES.value
+    columns = [word.rstrip("=") for word in arguments if word.endswith("=")]
+    assert columns == ["pid", "pcpu", "rss", "uid", "ucomm"]
+    assert [word for word in arguments if not word.endswith("=")] == ["-ax"] + ["-o"] * 5
+    for word in arguments:
+        # "-e" and "-E" add the environment; "-w" widens command lines.
+        assert word not in ("-e", "-E", "-w", "-ww")
+        for column in ("args", "command", "comm=", "env"):
+            assert column not in word.replace("ucomm=", "")
 
 
 def test_every_probe_is_a_system_program_with_read_only_arguments() -> None:
     for probe in Probe:
         program, *arguments = probe.value
-        assert program.startswith(("/usr/bin/", "/usr/sbin/", "/usr/libexec/")), probe
+        assert program.startswith(("/bin/", "/usr/bin/", "/usr/sbin/", "/usr/libexec/")), probe
         assert ".." not in program
         # Words that would change a setting never appear.
         for argument in arguments:
@@ -66,7 +84,7 @@ def test_every_probe_is_a_system_program_with_read_only_arguments() -> None:
 )  # fmt: skip
 def test_only_a_listed_probe_can_be_run(monkeypatch: pytest.MonkeyPatch, probe: Any) -> None:
     started: list[object] = []
-    monkeypatch.setattr(processes, "_run_bounded", lambda command: started.append(command))
+    monkeypatch.setattr(processes, "_run_bounded", lambda *a, **k: started.append(a))
     with pytest.raises(ValueError, match="listed probe"):
         run_probe(probe)
     assert started == []
@@ -78,28 +96,38 @@ def test_a_probe_runs_exactly_its_fixed_command(
 ) -> None:
     started: list[object] = []
 
-    def record(command: object) -> bytes:
-        started.append(command)
+    def record(command: object, **limits: object) -> bytes:
+        started.append((command, limits))
         return b"some output\n"
 
     monkeypatch.setattr(processes, "_run_bounded", record)
     assert run_probe(probe) == "some output\n"
-    assert started == [probe.value]
+    limit = MAX_LISTING_OUTPUT_BYTES if probe is Probe.PROCESSES else MAX_PROBE_OUTPUT_BYTES
+    assert started == [(probe.value, {"max_bytes": limit})]
 
 
-def test_output_that_is_not_plain_ascii_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(processes, "_run_bounded", lambda command: "FileVault is On.é".encode())
-    assert run_probe(Probe.FILEVAULT) is None
+def test_bytes_that_are_not_plain_ascii_become_a_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The marker (U+FFFD) is accepted by no caller's pattern. The rest stays
+    # readable, so one odd name cannot hide the whole list of processes.
+    output = b"FileVault is On.\xc3\xa9\nnext \xff line\n"
+    monkeypatch.setattr(processes, "_run_bounded", lambda *a, **k: output)
+    text = run_probe(Probe.FILEVAULT)
+    assert text == "FileVault is On.\ufffd\ufffd\nnext \ufffd line\n"
+    assert text.isascii() is False
 
 
 def test_a_failed_probe_gives_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(processes, "_run_bounded", lambda command: None)
-    assert run_probe(Probe.FILEVAULT) is None
+    monkeypatch.setattr(processes, "_run_bounded", lambda *a, **k: None)
+    for probe in Probe:
+        assert run_probe(probe) is None
 
 
 def test_default_limits() -> None:
     assert PROBE_TIMEOUT_SECONDS == 5.0
     assert MAX_PROBE_OUTPUT_BYTES == 4096
+    assert MAX_LISTING_OUTPUT_BYTES == 262144
 
 
 # --- How a program is started ------------------------------------------------
@@ -293,4 +321,8 @@ def test_only_these_modules_use_the_runner() -> None:
         if "potato.integrations.processes" in path.read_text(encoding="utf-8")
         or "integrations import processes" in path.read_text(encoding="utf-8")
     )
-    assert users == ["modules/launcher.py", "modules/security_posture.py"]
+    assert users == [
+        "modules/launcher.py",
+        "modules/process_overview.py",
+        "modules/security_posture.py",
+    ]

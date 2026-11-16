@@ -86,7 +86,7 @@ def test_everything_off() -> None:
     assert [check["explanation"] for check in result["checks"]] == [c.off for c in CHECKS]
 
 
-@pytest.mark.parametrize("probe", list(Probe))
+@pytest.mark.parametrize("probe", list(ALL_ON))
 def test_one_setting_off_is_reported(probe: Probe) -> None:
     result: Any = read_posture(Runner({**ALL_ON, probe: ALL_OFF[probe]}))
     assert result["summary"] == SUMMARIES["some_off"]
@@ -94,7 +94,7 @@ def test_one_setting_off_is_reported(probe: Probe) -> None:
     assert off == [BY_PROBE[probe].name]
 
 
-@pytest.mark.parametrize("probe", list(Probe))
+@pytest.mark.parametrize("probe", list(ALL_ON))
 def test_one_unreadable_setting_is_never_called_on(probe: Probe) -> None:
     result: Any = read_posture(Runner({**ALL_ON, probe: None}))
     assert result["summary"] == SUMMARIES["incomplete"]
@@ -149,6 +149,8 @@ def test_expected_lines_are_understood(probe: Probe, output: str, state: str) ->
         (Probe.FILEVAULT, "Error: something failed\nFileVault is On.\n"),
         (Probe.FILEVAULT, "FileVault is Unknown."),
         (Probe.FILEVAULT, "FileVault is On.\x00"),
+        (Probe.FILEVAULT, "FileVault is On.\ufffd"),
+        (Probe.FILEVAULT, "\ufffd\nFileVault is On."),
         (Probe.FILEVAULT, CANARY),
         (Probe.FILEVAULT, "x" * 100_000),
         (Probe.FILEVAULT, 5),
@@ -180,8 +182,8 @@ def test_anything_unexpected_is_unknown_never_a_guess(probe: Probe, output: Any)
 
 
 def test_each_tools_line_is_not_accepted_for_another_setting() -> None:
-    for probe in Probe:
-        for other in Probe:
+    for probe in ALL_ON:
+        for other in ALL_ON:
             if other is not probe:
                 assert states({probe: ALL_ON[other]})[BY_PROBE[probe].name] == "unknown"
 
@@ -221,8 +223,13 @@ def test_on_is_never_presented_as_secure() -> None:
         assert "safe" not in text.lower()
 
 
-def test_every_probe_has_exactly_one_check() -> None:
-    assert sorted(check.probe.name for check in CHECKS) == sorted(probe.name for probe in Probe)
+def test_the_four_settings_each_have_their_own_probe() -> None:
+    assert [check.probe for check in CHECKS] == [
+        Probe.FILEVAULT,
+        Probe.FIREWALL,
+        Probe.GATEKEEPER,
+        Probe.SYSTEM_INTEGRITY,
+    ]
 
 
 # --- Through the gate --------------------------------------------------------

@@ -5,9 +5,10 @@ So far: ``portfolio``, which lists, records and removes holdings;
 ``launcher``, which opens one of a fixed list of Apple's applications;
 ``calendar``, which lists upcoming events and deadlines, read-only; and
 ``security_posture``, which reports whether this Mac's built-in protections
-are switched on.
+are switched on; and ``process_overview``, which reports what is running
+and what is using the most processor and memory.
 
-Planned: the read-only process and network monitors.
+Planned: the read-only network overview.
 
 Boundary: a module runs only when ``potato.security`` hands it a validated
 call. Modules never run directly from model output.
