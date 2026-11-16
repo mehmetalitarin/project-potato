@@ -4,8 +4,8 @@ Everything that starts a process goes through this file, so there is one
 place to review (T-TOOL-1, T-TOOL-3). It does two things:
 
 - asks macOS to open an application that the launcher has already checked;
-- runs one of a fixed list of Apple's read-only status tools, the *probes*,
-  and returns what it printed.
+- runs one of a fixed list of read-only system commands, the *probes*, and
+  returns what it printed.
 
 The rules every process follows here:
 
@@ -21,11 +21,14 @@ The rules every process follows here:
 - **Nothing in, nothing out.** Input and output are discarded, and the
   environment holds only a search path for the system's own programs.
 - **A time limit.** A program that does not finish in time is stopped.
-- **An output cap.** A probe that prints more than a few kilobytes is
-  stopped, and what it printed is thrown away.
+- **An output cap.** A probe that prints more than its limit (a few
+  kilobytes for a setting, more for the list of processes) is stopped, and
+  what it printed is thrown away.
 
-The probes only read settings. None can change one, and none needs
-administrator rights.
+The probes only read. None can change anything, and none is given
+administrator rights by Potato. The process list asks ``ps`` for each
+program's short name only, never its command line, which can hold secrets
+(T-TOOL-4).
 """
 
 import contextlib
@@ -33,9 +36,10 @@ import os
 import select
 import subprocess  # Allowed in this module only; see R3 in docs/architecture.md.
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 OPEN_PROGRAM: Final = "/usr/bin/open"
@@ -55,6 +59,7 @@ _ENVIRONMENT: Final = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 
 PROBE_TIMEOUT_SECONDS: Final = 5.0
 MAX_PROBE_OUTPUT_BYTES: Final = 4096
+MAX_LISTING_OUTPUT_BYTES: Final = 256 * 1024
 
 
 class Probe(Enum):
@@ -67,6 +72,19 @@ class Probe(Enum):
     FIREWALL = ("/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate")
     GATEKEEPER = ("/usr/sbin/spctl", "--status")
     SYSTEM_INTEGRITY = ("/usr/bin/csrutil", "status")
+    # One line for each running process: its number, processor share, memory
+    # in kilobytes, owner's number and short name. The short name ("ucomm")
+    # never includes the command line. Each "=" removes a column heading.
+    PROCESSES = (
+        "/bin/ps", "-ax", "-o", "pid=", "-o", "pcpu=", "-o", "rss=", "-o", "uid=",
+        "-o", "ucomm=",
+    )  # fmt: skip
+
+
+# Probes that print a list rather than one line may print more.
+_OUTPUT_LIMITS: Final[Mapping[Probe, int]] = MappingProxyType(
+    {Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES}
+)
 
 
 def _is_application_path(path: Path) -> bool:
@@ -117,7 +135,11 @@ def run_probe(probe: Probe) -> str | None:
 
     The exit code is not used: some of these tools exit with an error code
     simply to say a setting is off. Callers decide from the text, which they
-    must treat as untrusted and match against exact expected lines.
+    must treat as untrusted and match against exact expected patterns.
+
+    A byte that is not plain ASCII becomes the replacement character
+    U+FFFD, which no caller's pattern accepts. The rest of the output stays
+    readable, so one odd name cannot hide the whole list of processes.
 
     Raises:
         ValueError: ``probe`` is not a member of ``Probe``. Nothing was
@@ -125,13 +147,11 @@ def run_probe(probe: Probe) -> str | None:
     """
     if not isinstance(probe, Probe):
         raise ValueError("only a listed probe can be run")
-    output = _run_bounded(probe.value)
+    limit = _OUTPUT_LIMITS.get(probe, MAX_PROBE_OUTPUT_BYTES)
+    output = _run_bounded(probe.value, max_bytes=limit)
     if output is None:
         return None
-    try:
-        return output.decode("ascii")
-    except UnicodeDecodeError:
-        return None
+    return output.decode("ascii", errors="replace")
 
 
 def _run_bounded(
