@@ -24,6 +24,8 @@ The rules every process follows here:
 - **An output cap.** A probe that prints more than its limit (a few
   kilobytes for a setting, more for the list of processes) is stopped, and
   what it printed is thrown away.
+- **No lookups.** The network probe prints numbers only, so running it
+  never contacts a name server.
 
 The probes only read. None can change anything, and none is given
 administrator rights by Potato. The process list asks ``ps`` for each
@@ -60,6 +62,7 @@ _ENVIRONMENT: Final = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 PROBE_TIMEOUT_SECONDS: Final = 5.0
 MAX_PROBE_OUTPUT_BYTES: Final = 4096
 MAX_LISTING_OUTPUT_BYTES: Final = 256 * 1024
+MAX_NETWORK_OUTPUT_BYTES: Final = 1024 * 1024
 
 
 class Probe(Enum):
@@ -79,11 +82,17 @@ class Probe(Enum):
         "/bin/ps", "-ax", "-o", "pid=", "-o", "pcpu=", "-o", "rss=", "-o", "uid=",
         "-o", "ucomm=",
     )  # fmt: skip
+    # This Mac's network sockets, one field per line: process number (p),
+    # short name (c), socket number (f), protocol (P), addresses (n) and TCP
+    # state (T). "-n" and "-P" print numbers only, so nothing is looked up
+    # on the network. Without administrator rights, only the user's own
+    # programs are shown.
+    NETWORK = ("/usr/sbin/lsof", "-nP", "-i", "-F", "pcfPnT")
 
 
 # Probes that print a list rather than one line may print more.
 _OUTPUT_LIMITS: Final[Mapping[Probe, int]] = MappingProxyType(
-    {Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES}
+    {Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES, Probe.NETWORK: MAX_NETWORK_OUTPUT_BYTES}
 )
 
 

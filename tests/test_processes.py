@@ -16,6 +16,7 @@ import pytest
 import potato.integrations.processes as processes
 from potato.integrations.processes import (
     MAX_LISTING_OUTPUT_BYTES,
+    MAX_NETWORK_OUTPUT_BYTES,
     MAX_PROBE_OUTPUT_BYTES,
     PROBE_TIMEOUT_SECONDS,
     Probe,
@@ -48,7 +49,19 @@ def test_the_probes_are_exactly_these_commands() -> None:
             "/bin/ps", "-ax", "-o", "pid=", "-o", "pcpu=", "-o", "rss=", "-o", "uid=",
             "-o", "ucomm=",
         ),
+        "NETWORK": ("/usr/sbin/lsof", "-nP", "-i", "-F", "pcfPnT"),
     }  # fmt: skip
+
+
+def test_the_network_list_never_looks_anything_up() -> None:
+    # "-n" keeps addresses as numbers and "-P" keeps ports as numbers, so
+    # lsof never asks a name server. "-i" limits it to network sockets.
+    program, *arguments = Probe.NETWORK.value
+    assert program == "/usr/sbin/lsof"
+    assert arguments[0] == "-nP"
+    assert arguments[1] == "-i"
+    # Field output only: process, name, socket, protocol, addresses, TCP state.
+    assert arguments[2:] == ["-F", "pcfPnT"]
 
 
 def test_the_process_list_never_asks_for_command_lines() -> None:
@@ -102,7 +115,10 @@ def test_a_probe_runs_exactly_its_fixed_command(
 
     monkeypatch.setattr(processes, "_run_bounded", record)
     assert run_probe(probe) == "some output\n"
-    limit = MAX_LISTING_OUTPUT_BYTES if probe is Probe.PROCESSES else MAX_PROBE_OUTPUT_BYTES
+    limit = {
+        Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES,
+        Probe.NETWORK: MAX_NETWORK_OUTPUT_BYTES,
+    }.get(probe, MAX_PROBE_OUTPUT_BYTES)
     assert started == [(probe.value, {"max_bytes": limit})]
 
 
@@ -128,6 +144,7 @@ def test_default_limits() -> None:
     assert PROBE_TIMEOUT_SECONDS == 5.0
     assert MAX_PROBE_OUTPUT_BYTES == 4096
     assert MAX_LISTING_OUTPUT_BYTES == 262144
+    assert MAX_NETWORK_OUTPUT_BYTES == 1048576
 
 
 # --- How a program is started ------------------------------------------------
@@ -323,6 +340,7 @@ def test_only_these_modules_use_the_runner() -> None:
     )
     assert users == [
         "modules/launcher.py",
+        "modules/network_overview.py",
         "modules/process_overview.py",
         "modules/security_posture.py",
     ]
