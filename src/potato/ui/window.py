@@ -57,6 +57,7 @@ from potato.ui.approval import (
     ApprovalDialog,
     describe_action,
 )
+from potato.ui.dashboard import SecurityDashboard
 from potato.ui.orb import Orb, OrbBubble, mode_for
 from potato.ui.text import displayable
 
@@ -188,6 +189,10 @@ class PotatoWindow(QMainWindow):
         self.wake_button = QPushButton("Wake")
         self.sleep_button = QPushButton("Sleep")
         self.mini_button = QPushButton("Mini")
+        self.security_button = QPushButton("Security")
+        self.security_button.setEnabled(gate is not None)
+        self.security_button.clicked.connect(self.show_dashboard)
+        self.dashboard: SecurityDashboard | None = None
         self.wake_button.clicked.connect(self._wake)
         self.sleep_button.clicked.connect(self._sleep)
         self.mini_button.clicked.connect(self.show_bubble)
@@ -209,6 +214,7 @@ class PotatoWindow(QMainWindow):
         top.addWidget(self.wake_button)
         top.addWidget(self.sleep_button)
         top.addWidget(self.mini_button)
+        top.addWidget(self.security_button)
         bottom = QHBoxLayout()
         bottom.addWidget(self.entry, 1)
         bottom.addWidget(self.send_button)
@@ -258,6 +264,18 @@ class PotatoWindow(QMainWindow):
         mode = mode_for(self._state.state, busy=thinking)
         self.orb.set_mode(mode)
         self.bubble.orb.set_mode(mode)
+
+    # --- The security dashboard ---------------------------------------------
+
+    def show_dashboard(self) -> None:
+        """Open the security dashboard and refresh it."""
+        if self._gate is None:
+            return
+        if self.dashboard is None:
+            self.dashboard = SecurityDashboard(self._gate, self, start=self._start)
+        self.dashboard.show()
+        self.dashboard.raise_()
+        self.dashboard.refresh()
 
     # --- The floating bubble ------------------------------------------------
 
@@ -446,6 +464,8 @@ class PotatoWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt's name
         """Deny anything still waiting, then put Potato to sleep."""
         self.bubble.close()
+        if self.dashboard is not None:
+            self.dashboard.close()
         for request, _ in self._waiting:
             self._record_denial(request)
         self._waiting.clear()
