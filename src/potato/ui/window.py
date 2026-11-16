@@ -57,6 +57,7 @@ from potato.ui.approval import (
     ApprovalDialog,
     describe_action,
 )
+from potato.ui.orb import Orb, OrbBubble, mode_for
 from potato.ui.text import displayable
 
 TITLE: Final = "Potato"
@@ -180,11 +181,16 @@ class PotatoWindow(QMainWindow):
         self._bridge.state_changed.connect(self._show_state)
 
         self.setWindowTitle(TITLE)
+        self.orb = Orb()
+        self.orb.setFixedHeight(180)
+        self.bubble = OrbBubble(self.show_from_bubble)
         self.status = self._plain_label("")
         self.wake_button = QPushButton("Wake")
         self.sleep_button = QPushButton("Sleep")
+        self.mini_button = QPushButton("Mini")
         self.wake_button.clicked.connect(self._wake)
         self.sleep_button.clicked.connect(self._sleep)
+        self.mini_button.clicked.connect(self.show_bubble)
 
         self.transcript = QPlainTextEdit()
         self.transcript.setReadOnly(True)
@@ -202,17 +208,19 @@ class PotatoWindow(QMainWindow):
         top.addWidget(self.status, 1)
         top.addWidget(self.wake_button)
         top.addWidget(self.sleep_button)
+        top.addWidget(self.mini_button)
         bottom = QHBoxLayout()
         bottom.addWidget(self.entry, 1)
         bottom.addWidget(self.send_button)
         layout = QVBoxLayout()
+        layout.addWidget(self.orb)
         layout.addLayout(top)
         layout.addWidget(self.transcript, 1)
         layout.addLayout(bottom)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
-        self.resize(640, 480)
+        self.resize(640, 620)
 
         state.subscribe(self._on_state_change)
         self._show_state(state.state)
@@ -241,6 +249,29 @@ class PotatoWindow(QMainWindow):
         self._busy = busy
         self.entry.setEnabled(not busy)
         self.send_button.setEnabled(not busy)
+        self._update_orbs()
+
+    def _update_orbs(self) -> None:
+        # Thinking shows only while a request is with the model, not while an
+        # approval dialog waits for the user.
+        thinking = self._busy and self._asking is None
+        mode = mode_for(self._state.state, busy=thinking)
+        self.orb.set_mode(mode)
+        self.bubble.orb.set_mode(mode)
+
+    # --- The floating bubble ------------------------------------------------
+
+    def show_bubble(self) -> None:
+        """Shrink Potato into the floating bubble."""
+        self.bubble.show()
+        self.hide()
+
+    def show_from_bubble(self) -> None:
+        """Bring back the main window from the bubble."""
+        self.bubble.hide()
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     # --- State --------------------------------------------------------------
 
@@ -253,6 +284,7 @@ class PotatoWindow(QMainWindow):
         if not isinstance(state, AssistantState):
             return
         self.status.setText(STATE_TEXT[state])
+        self._update_orbs()
         if state is not AssistantState.ACTIVE and self._asking is not None:
             # Potato went to sleep or failed while asking. That is a "no".
             self._asking[0].reject()
@@ -354,6 +386,7 @@ class PotatoWindow(QMainWindow):
             self._asking = (dialog, proposal)
             dialog.finished.connect(self._decided)
             self._set_busy(True)
+            self._update_orbs()
             self._state.record_activity()
             dialog.open()
             return
@@ -412,6 +445,7 @@ class PotatoWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt's name
         """Deny anything still waiting, then put Potato to sleep."""
+        self.bubble.close()
         for request, _ in self._waiting:
             self._record_denial(request)
         self._waiting.clear()

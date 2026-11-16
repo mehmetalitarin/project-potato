@@ -205,6 +205,11 @@ person clicks. What it guarantees:
   its own text.
 - **Closing puts Potato to sleep**, which releases the microphone and the
   model.
+- **The orb is an honest indicator.** The animated orb at the top of the
+  window, and the floating bubble that can stand in for the window, are
+  drawn by code from Potato's state alone. The state always wins: the orb
+  can never look busy or attentive while Potato is asleep, so it doubles as a
+  microphone indicator. It animates only while it can be seen.
 - **No way out.** No part of Potato may use Qt to open links or files in
   other applications, start programs or run scripts (`tests/test_architecture.py`).
 
