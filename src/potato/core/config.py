@@ -32,7 +32,7 @@ from typing import Any, Final
 
 # Model names Potato will ask Ollama for. Adding one is a code change, reviewed
 # like any other. Cloud-hosted models must never appear here.
-ALLOWED_MODELS: Final[frozenset[str]] = frozenset({"qwen3:8b"})
+ALLOWED_MODELS: Final[frozenset[str]] = frozenset({"qwen3:8b", "qwen3:14b"})
 
 # Larger than any sensible settings file; small enough to parse instantly.
 MAX_SETTINGS_CHARACTERS: Final = 64 * 1024

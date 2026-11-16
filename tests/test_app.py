@@ -348,6 +348,33 @@ def test_a_typed_request_reaches_the_model_and_the_reply_is_shown(
     assert {tool["function"]["name"] for tool in chat["tools"]} == set(ENABLED)
 
 
+def test_potato_remembers_the_conversation_until_it_sleeps(
+    qt: QApplication, potato: Application, server: FakeOllama
+) -> None:
+    say(qt, potato, "my name is Mehmet")
+    say(qt, potato, "what's my name?")
+    second = requests_to(server, "/api/chat")[1]["messages"]
+    assert {"role": "user", "content": "my name is Mehmet"} in second
+    assert {"role": "assistant", "content": "Hello from the model."} in second
+
+    potato.window.sleep_button.click()
+    say(qt, potato, "what's my name?")
+    third = requests_to(server, "/api/chat")[2]["messages"]
+    assert [m["role"] for m in third] == ["system", "user"]
+
+
+def test_the_larger_model_can_be_chosen(
+    qt: QApplication, server: FakeOllama, locations: Locations
+) -> None:
+    settings = parse_settings(f'[ollama]\nport = {server.port}\nmodel = "qwen3:14b"\n')
+    application = build(settings, locations)
+    try:
+        say(qt, application, "hello")
+        assert requests_to(server, "/api/chat")[0]["model"] == "qwen3:14b"
+    finally:
+        application.close()
+
+
 def test_a_tool_runs_through_the_gate_and_is_audited(
     qt: QApplication, potato: Application, server: FakeOllama, locations: Locations
 ) -> None:

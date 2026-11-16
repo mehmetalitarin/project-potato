@@ -43,6 +43,7 @@ chat window, not a voice assistant. Everything that's there is tested.
 | Approval dialog: shows the exact action, Deny by default, real clicks only | Done |
 | Starting Potato as an app: `python -m potato` opens the window, connected to the model and tools | Done |
 | Model unloaded from memory when idle | Done |
+| Conversation memory, without letting outside text choose a tool | Done |
 | Voice: wake word, speech-to-text, text-to-speech | Next |
 | Dependency scan | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
@@ -138,6 +139,10 @@ For conversations you also need Ollama and the model (one download):
 ollama pull qwen3:8b
 ```
 
+With 16 GB of memory or more, the larger `qwen3:14b` is noticeably smarter
+and replies a bit more slowly. Pull it and set `model = "qwen3:14b"` in the
+settings below.
+
 If Ollama isn't running or the model isn't there, Potato just says so.
 
 ## Checks
@@ -170,7 +175,7 @@ Potato works with built-in defaults. If you want to change them, create
 [ollama]
 host = "127.0.0.1"             # loopback IP addresses only; host names are refused
 port = 11434
-model = "qwen3:8b"             # must be on the allowlist in the source code
+model = "qwen3:8b"             # "qwen3:8b" or "qwen3:14b"; others are refused
 request_timeout_seconds = 60
 context_length = 8192
 

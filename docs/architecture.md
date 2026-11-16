@@ -49,7 +49,7 @@ sequenceDiagram
     participant Gate as security gate
     participant Tool as tool + integration
     User->>Core: "Potato, what is due this week?"
-    Core->>Model: Pass 1: user's words and the tool list
+    Core->>Model: Pass 1: clean conversation, user's words, tool list
     Model-->>Core: Proposed call (untrusted)
     Core->>Gate: Proposal and origin (voice)
     Note over Gate: allowlist, schema, risk, origin,<br/>approval, rate limit, audit
@@ -64,10 +64,10 @@ sequenceDiagram
 1. **Input.** Words arrive by voice or keyboard. The code that received them
    records the *origin*. The model never sets it.
 2. **Pass 1: choose.** The model sees the fixed system prompt, the tools this
-   origin may use, and the user's own words from this turn. It may propose
-   up to three calls; if it proposes more, none run. It has seen no external
-   data at this point. If it proposes nothing, its answer is the reply and
-   the turn ends here.
+   origin may use, the clean part of the conversation so far (below) and the
+   user's own words from this turn. It may propose up to three calls; if it
+   proposes more, none run. It has seen no external data at this point. If it
+   proposes nothing, its answer is the reply and the turn ends here.
 3. **Gate.** Each proposal is checked as described in
    [permissions.md](permissions.md). A denial is a fixed message. If nothing
    ran, the reply is built from those fixed messages and the model is not
@@ -80,12 +80,23 @@ sequenceDiagram
 6. **Output.** The reply is shown as plain text and may be spoken. The
    interface also shows the underlying data directly from code.
 
-Tool results, and replies built from them, are never fed back into a later
-pass 1. A turn keeps nothing at all for the next one. This closes the route
-by which injected text could wait a turn and then choose a tool. The cost is
-that Potato does not remember the conversation: "and next week?" does not
-work as a follow-up. Memory for the reply pass only, where it cannot cause
-an action, may be added later.
+**Conversation memory, with taint tracking.** Potato remembers the last 12
+messages, so "my name is Mehmet" and "and next week?" work. Each remembered
+message is marked by where it came from:
+
+| Remembered message | Mark | Seen by pass 1 | Seen by pass 2 |
+| --- | --- | --- | --- |
+| The user's own words | Clean | Yes | Yes |
+| A fixed sentence written in Potato's code | Clean | Yes | Yes |
+| A reply written in pass 1, from clean messages only | Clean | Yes | Yes |
+| A reply written in pass 2, after reading tool results | **Tainted** | **No** | Yes |
+
+So tool results, and every reply built from them, never reach a later pass 1.
+Injected text cannot wait a turn and then choose a tool. The cost is that
+Potato cannot act on something only a tool result said: the user has to ask
+in their own words. The memory is held in the turn engine only, never written
+to disk or a log, capped at 6,000 characters, and forgotten whenever Potato
+leaves the active state.
 
 ## Packages
 
@@ -112,7 +123,7 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 | R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules and `tests/test_architecture.py`, both active now. The single module is `potato.integrations.processes`, named in that test. | Done |
 | R4 | **Only the interface creates approvals.** The object that makes approvals is made once at start-up, handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package and the start-up module refers to it; a test that reads the start-up module and fails unless the object is used exactly once, as the argument that hands it to the window (`tests/test_app.py`); a rule that no package may import the start-up module; and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Done |
 | R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. Qt's own networking, web engine and remote-control modules are never used. | An import contract on networking libraries, Qt's included (`tests/test_architecture.py`), and tests that watch the Ollama client and the market data client for any socket being bound (`tests/test_ollama.py`, `tests/test_market_data.py`). | Done |
-| R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results, in front of a fake model that obeys everything it reads, and assert that no call follows (`tests/test_turns.py`). | Done |
+| R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. The remembered conversation is taint-tracked: a reply written after reading tool results is never shown to the model while it chooses a tool. | Tests that plant instructions in tool results, in front of a fake model that obeys everything it reads and repeats it into its replies, and assert that no call follows, in that turn or later ones (`tests/test_turns.py`). | Done |
 | R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | The tools that are switched on are one list in the start-up module; a test pins that list and checks it against the table in [permissions.md](permissions.md) (`tests/test_app.py`). Settings validation rejects unknown fields. | Done |
 | R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. At start-up, Potato does not start if its settings are invalid, its audit log cannot be opened safely or fails its integrity check, or another copy is running (`tests/test_app.py`). | Partly done |
 | R9 | **No secrets outside the Keychain.** Not in source, settings, the database or logs. | Secret scanning and log redaction tests, both active now. | Partly done |
@@ -248,6 +259,11 @@ models) are performed by the user, not by Potato.
 - **Why two passes?** A model that can both read untrusted text and call
   tools can be steered by that text. Separating the two removes the route
   instead of trying to filter it.
+- **Why taint tracking instead of no memory?** Without memory the assistant
+  cannot follow a conversation, which makes it hard to use. Marking each
+  remembered message by where it came from keeps the same guarantee as the
+  two passes: nothing that came from outside is in view when a tool is
+  chosen.
 - **Why no plug-in system or agent framework?** They exist to let a model
   reach more things with less friction. This design wants the opposite.
 - **Why so few dependencies?** Each one is code that runs with the user's
