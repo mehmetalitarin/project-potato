@@ -90,6 +90,18 @@ class ProcessRow:
     plain_name: bool
 
 
+def display_name(raw: str) -> tuple[str, bool]:
+    """Return a program's name if it is short and plain, else a fixed label.
+
+    The second value says whether the name was plain. Also used by the
+    network overview, so both tools treat names the same way.
+    """
+    name = raw.strip(" ")
+    if _PLAIN_NAME.fullmatch(name) is None:
+        return UNUSUAL_NAME, False
+    return name, True
+
+
 def _owner(number: int, current_user: int) -> str:
     if number == current_user:
         return "you"
@@ -114,15 +126,14 @@ def parse_listing(output: str, current_user: int) -> tuple[list[ProcessRow], int
         if found is None:
             unreadable += 1
             continue
-        name = (found.group(5) or "").strip(" ")
-        plain = _PLAIN_NAME.fullmatch(name) is not None
+        name, plain = display_name(found.group(5) or "")
         rows.append(
             ProcessRow(
                 pid=int(found.group(1)),
                 processor_percent=float(found.group(2)),
                 memory_kilobytes=int(found.group(3)),
                 owner=_owner(int(found.group(4)), current_user),
-                name=name if plain else UNUSUAL_NAME,
+                name=name,
                 plain_name=plain,
             )
         )

@@ -165,6 +165,7 @@ arrive in M7 and follow these states.
 | Conversation | Memory only | Not logged (T-DATA-4). |
 | Approval signing key | Memory only | New at every start (T-APPR-3). |
 | Calendar events | Read on demand from Apple Calendar, through EventKit | Title, times and calendar name only. Not copied into the database, and not logged. |
+| Running programs, network sockets | Read on demand with `ps` and `lsof` | Memory only. No command lines, and no remote addresses in results. Not logged (T-TOOL-4). |
 
 ## Network connections
 

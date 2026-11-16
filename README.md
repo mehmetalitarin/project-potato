@@ -1,112 +1,104 @@
-# Project Potato
+# Project Potato 🥔
 
 [![CI](https://github.com/mehmetalitarin/project-potato/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmetalitarin/project-potato/actions/workflows/ci.yml)
 
-A local-first, voice-controlled personal assistant for macOS, designed
-security-first. The language model runs on your own machine through
-[Ollama](https://ollama.com), and it is never allowed to control the computer
-on its own: every action it proposes must pass an independent permission
-manager.
+Potato is a voice assistant for my Mac that runs completely locally. The
+language model runs on my own machine through [Ollama](https://ollama.com),
+so nothing I say goes to a cloud service.
 
-## Status
+I'm a Computer Science (Cyber Security) student at Royal Holloway, and I
+wanted to build something useful while learning how to make an AI assistant
+that can't be easily turned against its owner. The main idea is simple: **the
+model can only suggest actions, never do them itself.** Every action it
+suggests has to get past a separate permission manager (I call it "the
+gate") that the model can't talk its way around.
 
-**Pre-alpha.** Most of the feature list below is not built yet. This
-repository currently contains the package structure, tooling configuration,
-security documentation, validated settings, logging, a local database, the
-assistant's state rules, the permission manager, a client for the local
-model, the conversation logic, the portfolio tools, a phishing link
-analyser, an application launcher, read-only calendar and deadline tools, a
-market data client and tests. There is no
-window or voice input yet, so Potato cannot be used as an app.
+## Where it's at
 
-| Area | State |
+**Pre-alpha.** There's no window and no voice input yet, so you can't use
+Potato as an app. What's there so far is the security core, the connection
+to the local model and most of the tools, all tested.
+
+| Part | State |
 | --- | --- |
-| Project setup, linting, typing, tests | Done |
-| Continuous integration, dependency audit, secret scanning | Done |
-| Threat model and security documentation | Done |
-| Validated settings, with a loopback-only model address | Done |
-| Logging with secrets removed, and a tamper-evident audit log | Done |
+| Project setup: linting, strict typing, tests, CI on Ubuntu and macOS | Done |
+| Threat model and security docs | Done |
+| Settings validation, logging with secrets removed, tamper-evident audit log | Done |
 | Local database for portfolio holdings | Done |
-| Assistant states, with voice unable to wake Potato from sleep | Done |
-| Permission manager: allowlist, strict arguments, origin limits, rate and time limits | Done |
-| Physical approvals: single-use, expiring tokens bound to one exact action | Done |
+| Assistant states (voice can't wake Potato from sleep) | Done |
+| The gate: allowlist, strict arguments, origin limits, rate and time limits | Done |
+| Physical approvals: single-use tokens tied to one exact action | Done |
 | Attack tests for the gate, and import rules checked in CI | Done |
-| Local model client (Ollama): loopback only, bounded, strict | Done |
-| Conversation turns in two passes, so that outside text cannot trigger a tool | Done |
-| Portfolio tools: list, add and remove holdings (typed only, not by voice) | Done |
-| Market data client: verified TLS to one fixed address, bounded, strict | Done |
-| Phishing link analyser: text only, never opens the link | Done |
-| Check that no file hides or reverses text (Trojan Source) | Done |
-| Application launcher: Apple's apps only, checked to be the system-installed copy before opening | Done |
+| Local model client (Ollama, this Mac only) | Done |
+| Conversations in two passes, so outside text can't trigger a tool | Done |
+| Portfolio tools (typed only, not by voice) | Done |
+| Phishing link checker (reads the link as text, never opens it) | Done |
+| App launcher (Apple's own apps only, checked before opening) | Done |
 | Calendar and homework deadlines from Apple Calendar, read-only | Done |
-| Security posture: disk encryption, firewall, Gatekeeper and System Integrity Protection, read-only | Done |
-| Process overview: what is running and what uses the most, without reading command lines | Done |
-| Network overview | Next |
-| Live prices in the portfolio summary (optional; needs a Finnhub key) | Set aside |
-| Everything else | Not started |
+| Security posture: FileVault, firewall, Gatekeeper, SIP | Done |
+| Process overview (never reads command lines) | Done |
+| Network overview (never shows remote addresses) | Done |
+| Dependency scan and security update check | Next |
+| Voice: wake word, speech-to-text, text-to-speech | Not started |
+| Desktop window and the approval dialog | Not started |
+| Live stock prices (needs a Finnhub key) | Set aside |
 
-This README is updated as each milestone lands. It will never describe a
-feature as working before it is.
+I only mark something as done once it's built and tested.
 
-## Planned for version 1.0
+## What it'll do (version 1.0)
 
-- Local LLM through Ollama, bound to `127.0.0.1` only
-- Wake-word activation on "Potato", local speech-to-text and text-to-speech
-- Automatic sleep, with the model unloaded from memory when idle
-- Stock portfolio tracking (no trading, no brokerage credentials)
-- Read-only calendar access with homework and deadline summaries
-- Launching applications from a fixed allowlist
-- Defensive security tools: macOS security posture, process and network
-  monitoring, dependency vulnerability scanning, phishing URL analysis
-- Security dashboard and audit log
+- Wake on "Potato", with speech handled locally
+- Go to sleep when idle and unload the model from memory
+- Track a stock portfolio (no trading, no brokerage logins)
+- Read my calendar and summarise homework deadlines
+- Open apps from a fixed list
+- Security tools: posture check, process and network overviews, dependency
+  scanning, phishing link analysis
+- A security dashboard and audit log
 
-## Deliberately out of scope for 1.0
+Things I'm deliberately **not** building: email, messaging, calls, touching
+personal files, running shell commands, admin commands, remote control, any
+public API or any cloud AI.
 
-Email, messaging and calls; reading, scanning, modifying or deleting personal
-files; arbitrary shell or Python execution; administrator commands; remote
-control; any public-facing API; any cloud AI service.
+## How I'm trying to keep it safe
 
-## Security design goals
+These are goals I test against, not a promise that it can't be attacked.
 
-These are goals the code will be tested against, not claims that the
-application is secure.
-
-- **The model proposes, it never executes.** Model output is treated as
-  untrusted data and validated against strict schemas.
-- **One gate.** Every tool call passes through the permission manager:
-  allowlists, argument validation, rate limits, timeouts and audit logging.
-- **Physical approval for anything sensitive.** A click or key press in the
-  desktop interface, never a voice command.
-- **Least privilege.** No administrator rights, no shell, no inbound network
-  listener.
-- **External content is data.** Calendar text, API responses and anything
+- **The model proposes, it never executes.** Anything it outputs is treated
+  as untrusted data and checked against strict rules.
+- **One gate for everything.** Allowlists, argument checks, rate limits,
+  timeouts and audit logging all happen in one place.
+- **A real click for anything sensitive.** Approving something risky needs a
+  click or key press in the app. Voice can't approve anything.
+- **Least privilege.** No admin rights, no shell, nothing listening on the
+  network.
+- **Outside text is just data.** Calendar entries, web data and anything
   else from outside can never become instructions.
 
-No software is impossible to attack. The known limits of this design are
-written down in the [threat model](docs/threat_model.md), including what is
-deliberately out of scope.
+The [threat model](docs/threat_model.md) lists what I defend against, what's
+left over and what's out of scope.
 
-## Documentation
+## Docs
 
-| Document | What it covers |
+| Document | What's in it |
 | --- | --- |
-| [Threat model](docs/threat_model.md) | What Potato defends against, what it does not, and the status of each defence |
-| [Architecture](docs/architecture.md) | Components, trust boundaries and the rules CI will enforce |
-| [Permissions](docs/permissions.md) | What the permission manager guarantees, risk levels and physical approval |
+| [Threat model](docs/threat_model.md) | What Potato defends against, the leftover risk, and the status of each defence |
+| [Architecture](docs/architecture.md) | Components, trust boundaries and the rules CI enforces |
+| [Permissions](docs/permissions.md) | What the gate guarantees, risk levels and physical approval |
 | [Security policy](SECURITY.md) | How to report a vulnerability privately |
-| [Contributing](CONTRIBUTING.md) | Branch, pull request and merge workflow, and the security rules for changes |
+| [Contributing](CONTRIBUTING.md) | The branch and pull request workflow, and the security rules for changes |
 
-These are design documents. Each one marks clearly what exists today and
-what is planned.
+## How I built it
 
-## Requirements
+I built Potato with help from an AI assistant (Claude) for writing and
+reviewing code. The design, the security requirements and the testing
+approach are mine, and I review and run every change myself before it's
+merged. Every change goes through a pull request and has to pass all the CI
+checks.
 
-- macOS on Apple silicon
-- Python 3.12 or newer
+## Running it yourself
 
-Ollama is needed for conversations; see [The local model](#the-local-model).
-
-## Development setup
+You'll need macOS on Apple silicon and Python 3.12 or newer.
 
 ```bash
 python3 -m venv .venv
@@ -114,72 +106,52 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --require-hashes -r requirements.txt
 python -m pip install -e ".[dev]"
-pre-commit install     # run secret scanning and linting on every commit
+pre-commit install     # secret scanning and linting on every commit
 ```
 
-No administrator rights are required for any of this. The first commit after
-`pre-commit install` takes a minute while the hooks are set up. If
-`python3 --version` reports something older than 3.12, use `python3.12` in
-the first line instead.
+No admin rights needed. If `python3 --version` shows something older than
+3.12, use `python3.12` in the first line instead.
 
-## Checks
-
-```bash
-ruff check .            # lint, including security rules
-ruff format --check .   # formatting
-mypy                    # strict static typing
-pytest                  # tests
-pip-audit --skip-editable   # known vulnerabilities in installed packages
-pre-commit run --all-files  # every hook, including Gitleaks
-```
-
-## Repository security
-
-- CI runs on Ubuntu and on Apple silicon macOS, for Python 3.12 and 3.13.
-- Workflows have read-only permissions, and every third-party action is
-  pinned to a full commit SHA. Tests in `tests/test_repository_security.py`
-  fail if either protection is removed.
-- Gitleaks scans every commit locally (pre-commit) and the full history in CI.
-- Dependabot proposes updates for Python packages and for the pinned actions.
-- `main` is protected: changes arrive through pull requests only, and all
-  six CI checks must pass before a merge.
-
-Run the scaffold itself:
+Quick check that it works:
 
 ```bash
 python -m potato --version
 python -m potato --check-settings
 ```
 
-## The local model
-
-Potato talks to [Ollama](https://ollama.com) on this Mac and to nothing
-else. Install Ollama, then download the model once:
+For conversations you also need Ollama and the model (one download):
 
 ```bash
 ollama pull qwen3:8b
 ```
 
-If Ollama is not running, or the model is not installed, Potato says so and
-carries on without it.
+If Ollama isn't running or the model isn't there, Potato just says so.
 
-## Market prices
+## Checks
 
-Prices come from [Finnhub](https://finnhub.io), using your own free API key.
-Potato sends Finnhub one ticker symbol at a time and nothing else about you:
-no quantities and no prices paid. The connection is always verified TLS to
-that one address.
+```bash
+ruff check .                # lint, including security rules
+ruff format --check .       # formatting
+mypy                        # strict typing
+pytest                      # tests
+pip-audit --skip-editable   # known vulnerabilities in installed packages
+pre-commit run --all-files  # every hook, including Gitleaks
+```
 
-A free Finnhub key covers US-listed shares only, so holdings listed
-elsewhere get no live price. Prices are for display. Potato never trades.
+CI runs all of this on Ubuntu and Apple silicon macOS, with Python 3.12 and
+3.13. A few other things protect the repo itself:
 
-The client is built and tested, but nothing uses it yet. Live prices are
-optional and set aside for now, so Potato stores no credentials at all.
+- Workflows have read-only permissions, and every third-party action is
+  pinned to a full commit hash. Tests fail if either is removed.
+- Gitleaks scans every commit locally and the whole history in CI.
+- Dependabot suggests updates for packages and actions.
+- `main` is protected: changes only arrive through pull requests, and all
+  six CI checks have to pass.
 
 ## Settings
 
-Potato runs on built-in defaults. An optional file at
-`~/Library/Application Support/Potato/settings.toml` can adjust them:
+Potato works with built-in defaults. If you want to change them, create
+`~/Library/Application Support/Potato/settings.toml`:
 
 ```toml
 [ollama]
@@ -197,23 +169,28 @@ approval_lifetime_seconds = 30
 ```
 
 Every number has a fixed minimum and maximum, and an unknown setting is an
-error. `python -m potato --check-settings` validates the file and reports
-the result. Nothing uses these settings yet; the components that will are
-built in later milestones.
+error. `python -m potato --check-settings` checks the file for you. Nothing
+uses these settings yet; that comes with the window and voice parts.
+
+## Stock prices
+
+There's a tested client for [Finnhub](https://finnhub.io) that only ever
+sends one ticker symbol per request, over verified TLS. I've set live prices
+aside for now, so nothing uses it and Potato stores no credentials at all.
 
 ## Project layout
 
 ```text
 src/potato/
-    core/           state machine, configuration, turn orchestration
-    security/       permission manager, approvals, audit log
+    core/           states, settings, conversation turns
+    security/       the gate, approvals, audit log
     modules/        the tools: launcher, portfolio, calendar, monitors
-    integrations/   the only code that talks to the outside world
-    voice/          microphone, wake word, speech-to-text, text-to-speech
+    integrations/   the only code that talks to anything outside Potato
+    voice/          microphone, wake word, speech (coming later)
     storage/        local SQLite database
-    ui/             PySide6 desktop interface
+    ui/             PySide6 desktop window (coming later)
 docs/               threat model, architecture, permissions
 tests/
 ```
 
-Each package's docstring states the boundary it must respect.
+Each package's docstring says what it is and isn't allowed to do.
