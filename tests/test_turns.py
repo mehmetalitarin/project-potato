@@ -390,10 +390,37 @@ def test_a_sensitive_tool_reports_the_pending_approval(world: World) -> None:
     result = TurnEngine(model, world.gate).run("wipe it", TYPED)
     assert result.status is TurnStatus.REFUSED
     assert result.text == MESSAGES[ReasonCode.APPROVAL_REQUIRED]
+    proposal = {"tool": "wipe", "arguments": {}}
     assert result.outcomes == (
-        ToolOutcome("wipe", False, ReasonCode.APPROVAL_REQUIRED, None, ApprovalRequest("wipe", {})),
+        ToolOutcome(
+            "wipe", False, ReasonCode.APPROVAL_REQUIRED, None, ApprovalRequest("wipe", {}), proposal
+        ),
     )
     assert world.ran == []
+    # The proposal is model output: kept for the gate, left out when printed.
+    assert "proposal" not in repr(result)
+
+
+def test_only_an_action_waiting_for_approval_keeps_its_proposal(world: World) -> None:
+    model = ScriptedModel(
+        Reply("", (CALENDAR, call("made_up"), call("wipe"))), Reply("Here you go.", ())
+    )
+    result = TurnEngine(model, world.gate).run("do things", TYPED)
+    assert [outcome.proposal is not None for outcome in result.outcomes] == [False, False, True]
+    assert [outcome.pending is not None for outcome in result.outcomes] == [False, False, True]
+    # Pass 2 never sees the proposal or the pending action.
+    for message in model.calls[1][0]:
+        assert "proposal" not in message.content
+        assert "pending" not in message.content
+
+
+def test_voice_never_gets_an_action_to_approve(world: World) -> None:
+    # A sensitive tool is refused for voice before approval is considered,
+    # so there is nothing for a dialog to show.
+    model = ScriptedModel(Reply("", (call("wipe"),)))
+    result = TurnEngine(model, world.gate).run("wipe it", VOICE)
+    assert all(outcome.pending is None for outcome in result.outcomes)
+    assert all(outcome.proposal is None for outcome in result.outcomes)
 
 
 def test_a_mix_of_run_and_refused_is_summarised_with_fixed_refusal_text(world: World) -> None:

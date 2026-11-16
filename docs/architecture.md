@@ -111,7 +111,7 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 | R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI (`tests/test_architecture.py`). | Done |
 | R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules and `tests/test_architecture.py`, both active now. The single module is `potato.integrations.processes`, named in that test. | Done |
 | R4 | **Only the interface creates approvals.** The object that makes approvals is handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package refers to it, and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Partly done |
-| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. | An import contract on networking libraries (`tests/test_architecture.py`), and tests that watch the Ollama client and the market data client for any socket being bound (`tests/test_ollama.py`, `tests/test_market_data.py`). | Done |
+| R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. Qt's own networking, web engine and remote-control modules are never used. | An import contract on networking libraries, Qt's included (`tests/test_architecture.py`), and tests that watch the Ollama client and the market data client for any socket being bound (`tests/test_ollama.py`, `tests/test_market_data.py`). | Done |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results, in front of a fake model that obeys everything it reads, and assert that no call follows (`tests/test_turns.py`). | Done |
 | R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
 | R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Partly done |
@@ -152,6 +152,40 @@ arrive in M7 and follow these states.
 - **Opening is recorded first.** A change that opens the microphone or loads
   the model is written to the audit log before it happens, and is refused if
   it cannot be. A change that closes things is never blocked by the log.
+
+## The interface
+
+The desktop window (`src/potato/ui/`, PySide6) is the only part of Potato a
+person clicks. What it guarantees:
+
+- **Plain text only.** Replies, labels and the user's own words are shown as
+  plain text. Nothing is ever rendered as HTML or Markdown, so a reply cannot
+  draw a fake button or warning, load an image or carry a link. Hidden and
+  direction-changing characters are replaced with a visible marker first.
+- **It states the origin.** Typed words go to the turn engine as `typed`.
+  The words cannot change that.
+- **One turn at a time, off the main thread.** The window stays responsive
+  and the input is disabled until the turn ends.
+- **Fixed sentences for failures.** An unexpected error is never shown as
+  its own text.
+- **Closing puts Potato to sleep**, which releases the microphone and the
+  model.
+- **No way out.** No part of Potato may use Qt to open links or files in
+  other applications, start programs or run scripts (`tests/test_architecture.py`).
+
+The approval dialog (`src/potato/ui/approval.py`) is the only place an
+approval can be given (R4):
+
+- **What is shown is what runs.** Its text is built by code from the gate's
+  validated copy of the action. An action that cannot be shown exactly
+  cannot be approved.
+- **Deny by default.** Return, Escape, closing the dialog, a minute without
+  an answer and Potato leaving the active state all deny.
+- **A real press only.** Approve acts only on a mouse or key event from the
+  window system, and not in the first moment after the dialog appears.
+- **Straight to the gate.** The approval is made inside the handler of that
+  press, handed to the gate with the original origin, used once and never
+  stored.
 
 ## Where data lives
 

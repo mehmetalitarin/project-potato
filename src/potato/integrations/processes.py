@@ -18,8 +18,9 @@ The rules every process follows here:
   from external data is passed on.
 - **No shell.** Arguments go to the program as a list, so nothing in them is
   ever read as a command.
-- **Nothing in, nothing out.** Input and output are discarded, and the
-  environment holds only a search path for the system's own programs.
+- **Nothing in.** A program gets no input, and the environment holds only a
+  search path for the system's own programs. Error output is discarded,
+  except for the update check, whose answer arrives there.
 - **A time limit.** A program that does not finish in time is stopped.
 - **An output cap.** A probe that prints more than its limit (a few
   kilobytes for a setting, more for the list of processes) is stopped, and
@@ -63,6 +64,7 @@ PROBE_TIMEOUT_SECONDS: Final = 5.0
 MAX_PROBE_OUTPUT_BYTES: Final = 4096
 MAX_LISTING_OUTPUT_BYTES: Final = 256 * 1024
 MAX_NETWORK_OUTPUT_BYTES: Final = 1024 * 1024
+SOFTWARE_UPDATE_TIMEOUT_SECONDS: Final = 90.0
 
 
 class Probe(Enum):
@@ -88,12 +90,24 @@ class Probe(Enum):
     # on the network. Without administrator rights, only the user's own
     # programs are shown.
     NETWORK = ("/usr/sbin/lsof", "-nP", "-i", "-F", "pcfPnT")
+    # Asks Apple's update service which updates exist. "--list" only lists:
+    # it never downloads or installs anything. This is the one probe that
+    # contacts the internet, through Apple's own tool, and the slowest.
+    SOFTWARE_UPDATES = ("/usr/sbin/softwareupdate", "--list")
 
 
 # Probes that print a list rather than one line may print more.
 _OUTPUT_LIMITS: Final[Mapping[Probe, int]] = MappingProxyType(
     {Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES, Probe.NETWORK: MAX_NETWORK_OUTPUT_BYTES}
 )
+# The update check waits for Apple's servers.
+_TIME_LIMITS: Final[Mapping[Probe, float]] = MappingProxyType(
+    {Probe.SOFTWARE_UPDATES: SOFTWARE_UPDATE_TIMEOUT_SECONDS}
+)
+# softwareupdate writes "No new software available." to its error output, so
+# for that probe the error output is read too, mixed into the same capped
+# stream. Every other probe's error output is thrown away.
+_READS_ERROR_OUTPUT: Final = frozenset({Probe.SOFTWARE_UPDATES})
 
 
 def _is_application_path(path: Path) -> bool:
@@ -156,8 +170,12 @@ def run_probe(probe: Probe) -> str | None:
     """
     if not isinstance(probe, Probe):
         raise ValueError("only a listed probe can be run")
-    limit = _OUTPUT_LIMITS.get(probe, MAX_PROBE_OUTPUT_BYTES)
-    output = _run_bounded(probe.value, max_bytes=limit)
+    output = _run_bounded(
+        probe.value,
+        timeout=_TIME_LIMITS.get(probe, PROBE_TIMEOUT_SECONDS),
+        max_bytes=_OUTPUT_LIMITS.get(probe, MAX_PROBE_OUTPUT_BYTES),
+        read_errors=probe in _READS_ERROR_OUTPUT,
+    )
     if output is None:
         return None
     return output.decode("ascii", errors="replace")
@@ -168,6 +186,7 @@ def _run_bounded(
     *,
     timeout: float = PROBE_TIMEOUT_SECONDS,
     max_bytes: int = MAX_PROBE_OUTPUT_BYTES,
+    read_errors: bool = False,
 ) -> bytes | None:
     """Run ``command`` and return its output, or ``None`` if it broke a limit.
 
@@ -183,7 +202,7 @@ def _run_bounded(
             list(command),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if read_errors else subprocess.DEVNULL,
             env=_ENVIRONMENT,
             close_fds=True,
         )

@@ -50,7 +50,19 @@ def test_the_probes_are_exactly_these_commands() -> None:
             "-o", "ucomm=",
         ),
         "NETWORK": ("/usr/sbin/lsof", "-nP", "-i", "-F", "pcfPnT"),
+        "SOFTWARE_UPDATES": ("/usr/sbin/softwareupdate", "--list"),
     }  # fmt: skip
+
+
+def test_the_update_check_only_lists() -> None:
+    # "--install", "--download", "--schedule" and the rest would change the
+    # Mac. Only "--list" is ever passed.
+    assert Probe.SOFTWARE_UPDATES.value[1:] == ("--list",)
+
+
+def test_only_the_update_check_reads_error_output_and_waits_longer() -> None:
+    assert frozenset({Probe.SOFTWARE_UPDATES}) == processes._READS_ERROR_OUTPUT
+    assert dict(processes._TIME_LIMITS) == {Probe.SOFTWARE_UPDATES: 90.0}
 
 
 def test_the_network_list_never_looks_anything_up() -> None:
@@ -113,13 +125,20 @@ def test_a_probe_runs_exactly_its_fixed_command(
         started.append((command, limits))
         return b"some output\n"
 
+    slow = probe is Probe.SOFTWARE_UPDATES
+
     monkeypatch.setattr(processes, "_run_bounded", record)
     assert run_probe(probe) == "some output\n"
     limit = {
         Probe.PROCESSES: MAX_LISTING_OUTPUT_BYTES,
         Probe.NETWORK: MAX_NETWORK_OUTPUT_BYTES,
     }.get(probe, MAX_PROBE_OUTPUT_BYTES)
-    assert started == [(probe.value, {"max_bytes": limit})]
+    expected = {
+        "timeout": 90.0 if slow else PROBE_TIMEOUT_SECONDS,
+        "max_bytes": limit,
+        "read_errors": slow,
+    }
+    assert started == [(probe.value, expected)]
 
 
 def test_bytes_that_are_not_plain_ascii_become_a_marker(
@@ -176,6 +195,13 @@ def test_the_exit_code_does_not_matter() -> None:
 
 def test_error_output_is_discarded() -> None:
     assert bounded("import sys; sys.stderr.write('noise'); print('answer')") == b"answer\n"
+
+
+def test_error_output_can_be_read_into_the_same_capped_stream() -> None:
+    code = "import sys; sys.stderr.write('err\\n'); sys.stderr.flush(); print('out')"
+    assert bounded(code, read_errors=True) == b"err\nout\n"
+    big = "import sys; sys.stderr.write('x' * 5000)"
+    assert bounded(big, read_errors=True) is None
 
 
 def test_arguments_are_never_read_by_a_shell(tmp_path: Path) -> None:
@@ -319,7 +345,10 @@ def test_neither_place_uses_a_shell_or_inherits_the_environment() -> None:
         assert isinstance(keywords["env"], ast.Name)
         assert keywords["env"].id == "_ENVIRONMENT"
         assert ast.unparse(keywords["stdin"]) == "subprocess.DEVNULL"
-        assert ast.unparse(keywords["stderr"]) == "subprocess.DEVNULL"
+        assert ast.unparse(keywords["stderr"]) in (
+            "subprocess.DEVNULL",
+            "subprocess.STDOUT if read_errors else subprocess.DEVNULL",
+        )
     assert processes._ENVIRONMENT == {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 
 
@@ -343,4 +372,5 @@ def test_only_these_modules_use_the_runner() -> None:
         "modules/network_overview.py",
         "modules/process_overview.py",
         "modules/security_posture.py",
+        "modules/security_updates.py",
     ]

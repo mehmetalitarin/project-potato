@@ -7,9 +7,10 @@ So far: ``portfolio``, which lists, records and removes holdings;
 ``security_posture``, which reports whether this Mac's built-in protections
 are switched on; ``process_overview``, which reports what is running and
 what is using the most processor and memory; and ``network_overview``, which
-reports which of the user's programs use the network.
+reports which of the user's programs use the network; and
+``security_updates``, which asks Apple's tool whether updates are waiting.
 
-Planned: the dependency scan and the security update check.
+Planned: the dependency scan.
 
 Boundary: a module runs only when ``potato.security`` hands it a validated
 call. Modules never run directly from model output.

@@ -46,7 +46,18 @@ NETWORKING = frozenset(
     {
         "socket", "socketserver", "ssl", "http", "urllib.request", "urllib3", "requests",
         "httpx", "aiohttp", "websockets", "ftplib", "smtplib", "telnetlib", "xmlrpc", "asyncio",
+        # Qt's own networking, web engine and remote-control modules.
+        "PySide6.QtNetwork", "PySide6.QtNetworkAuth", "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtWebSockets",
+        "PySide6.QtWebChannel", "PySide6.QtWebView", "PySide6.QtHttpServer",
+        "PySide6.QtRemoteObjects", "PySide6.QtDBus",
     }
+)  # fmt: skip
+# Qt features that reach outside Potato: starting programs, opening links or
+# files in other applications, and running scripts.
+QT_ESCAPES = frozenset(
+    {"QProcess", "QDesktopServices", "openUrl", "QJSEngine", "QQmlEngine", "QLibrary",
+     "QPluginLoader", "QLocalServer", "QTcpServer", "QUdpSocket"}
 )  # fmt: skip
 FORBIDDEN_CALLS = frozenset({"eval", "exec", "compile", "__import__", "breakpoint"})
 FORBIDDEN_OS_PREFIXES = ("system", "popen", "exec", "spawn", "posix_spawn", "fork", "startfile")
@@ -193,6 +204,20 @@ def test_nothing_listens_for_connections(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", FILES, ids=IDS)
+def test_qt_cannot_open_links_start_programs_or_run_scripts(path: Path) -> None:
+    for node in ast.walk(_tree(path)):
+        if isinstance(node, ast.Name):
+            assert node.id not in QT_ESCAPES, f"{node.id} on line {node.lineno}"
+        elif isinstance(node, ast.Attribute):
+            assert node.attr not in QT_ESCAPES, f".{node.attr} on line {node.lineno}"
+        elif isinstance(node, ast.alias):
+            assert node.name.rsplit(".", 1)[-1] not in QT_ESCAPES, f"imports {node.name}"
+    for name in _imports(path):
+        assert name.rsplit(".", 1)[-1] not in QT_ESCAPES, f"imports {name}"
+        assert not name.startswith(("PySide6.QtQml", "PySide6.QtQuick")), f"imports {name}"
+
+
+@pytest.mark.parametrize("path", FILES, ids=IDS)
 def test_only_the_calendar_integration_uses_pyobjc(path: Path) -> None:
     if _module_name(path) in MAY_USE_PYOBJC:
         return
@@ -219,6 +244,7 @@ R3 = test_nothing_starts_a_process_or_runs_text_as_code
 R5 = test_networking_lives_only_in_integrations
 LISTEN = test_nothing_listens_for_connections
 PYOBJC_RULE = test_only_the_calendar_integration_uses_pyobjc
+QT_RULE = test_qt_cannot_open_links_start_programs_or_run_scripts
 
 
 @pytest.mark.parametrize(
@@ -260,6 +286,16 @@ PYOBJC_RULE = test_only_the_calendar_integration_uses_pyobjc
         ("integrations/x.py", "def f():\n    import objc\n", PYOBJC_RULE),
         ("ui/x.py", "import AppKit\n", PYOBJC_RULE),
         ("integrations/x.py", "import Security\n", PYOBJC_RULE),
+        ("ui/x.py", "from PySide6.QtNetwork import QNetworkAccessManager\n", R5),
+        ("ui/x.py", "from PySide6 import QtNetwork\n", R5),
+        ("ui/x.py", "from PySide6.QtWebEngineWidgets import QWebEngineView\n", R5),
+        ("ui/x.py", "from PySide6.QtCore import QProcess\n", QT_RULE),
+        ("ui/x.py", "from PySide6 import QtCore\nQtCore.QProcess()\n", QT_RULE),
+        ("ui/x.py", "from PySide6.QtGui import QDesktopServices\n", QT_RULE),
+        ("ui/x.py", "def f(gui):\n    gui.QDesktopServices.openUrl(1)\n", QT_RULE),
+        ("ui/x.py", "from PySide6.QtQml import QQmlEngine\n", QT_RULE),
+        ("ui/x.py", "import PySide6.QtQuick\n", QT_RULE),
+        ("modules/x.py", "from PySide6.QtCore import QLibrary\n", QT_RULE),
     ],
 )  # fmt: skip
 def test_each_rule_catches_a_planted_violation(
@@ -282,6 +318,7 @@ def test_allowed_imports_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         ("voice/x.py", "from potato.core.state import StateManager\nimport os\nos.getuid()\n"),
         ("storage/x.py", "from potato.security.private_files import ensure_private_directory\n"),
         ("integrations/calendar.py", "import EventKit\nfrom Foundation import NSDate\n"),
+        ("ui/x.py", "from PySide6.QtWidgets import QLabel\nfrom PySide6.QtCore import Qt\n"),
     ]  # fmt: skip
     for relative, text in fine:
         path = _write(tmp_path, relative, text)
@@ -293,3 +330,4 @@ def test_allowed_imports_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         test_networking_lives_only_in_integrations(path)
         test_nothing_listens_for_connections(path)
         test_only_the_calendar_integration_uses_pyobjc(path)
+        test_qt_cannot_open_links_start_programs_or_run_scripts(path)

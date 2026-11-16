@@ -29,6 +29,10 @@ dependencies = [
     # Apple's EventKit, to read Apple Calendar. PyObjC is the long-standing
     # bridge from Python to macOS frameworks. macOS only.
     "pyobjc-framework-EventKit>=13.0; sys_platform == 'darwin'",
+    # Qt for Python, the official binding of the Qt toolkit, for the desktop
+    # window. The "Essentials" package leaves out the web browser engine and
+    # other large add-ons that Potato must not use anyway.
+    "PySide6-Essentials>=6.10",
 ]
 
 [project.optional-dependencies]

@@ -15,9 +15,10 @@ gate") that the model can't talk its way around.
 
 ## Where it's at
 
-**Pre-alpha.** There's no window and no voice input yet, so you can't use
-Potato as an app. What's there so far is the security core, the connection
-to the local model and most of the tools, all tested.
+**Pre-alpha.** The window exists but isn't connected to everything yet, and
+there's no voice input, so you can't use Potato as an app. What's there so
+far is the security core, the connection to the local model, most of the
+tools and the main window, all tested.
 
 | Part | State |
 | --- | --- |
@@ -38,9 +39,12 @@ to the local model and most of the tools, all tested.
 | Security posture: FileVault, firewall, Gatekeeper, SIP | Done |
 | Process overview (never reads command lines) | Done |
 | Network overview (never shows remote addresses) | Done |
-| Dependency scan and security update check | Next |
+| Security update check (lists only, never installs) | Done |
+| Desktop window: typed chat and Potato's state, plain text only | Done |
+| Approval dialog: shows the exact action, Deny by default, real clicks only | Done |
+| Starting Potato as an app, with the window connected to the model and tools | Next |
+| Dependency scan | Not started |
 | Voice: wake word, speech-to-text, text-to-speech | Not started |
-| Desktop window and the approval dialog | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
 
 I only mark something as done once it's built and tested.
@@ -52,8 +56,8 @@ I only mark something as done once it's built and tested.
 - Track a stock portfolio (no trading, no brokerage logins)
 - Read my calendar and summarise homework deadlines
 - Open apps from a fixed list
-- Security tools: posture check, process and network overviews, dependency
-  scanning, phishing link analysis
+- Security tools: posture check, process and network overviews, update
+  check, dependency scanning, phishing link analysis
 - A security dashboard and audit log
 
 Things I'm deliberately **not** building: email, messaging, calls, touching
@@ -188,7 +192,7 @@ src/potato/
     integrations/   the only code that talks to anything outside Potato
     voice/          microphone, wake word, speech (coming later)
     storage/        local SQLite database
-    ui/             PySide6 desktop window (coming later)
+    ui/             PySide6 desktop window
 docs/               threat model, architecture, permissions
 tests/
 ```
