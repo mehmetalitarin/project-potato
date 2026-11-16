@@ -196,8 +196,9 @@ def test_guarantee_names_the_threats_it_answers(guarantee: str) -> None:
     assert THREAT_ID.search(GUARANTEES[guarantee][2])
 
 
-def test_no_planned_tool_is_sensitive() -> None:
-    # Version 1.0 must contain no operation that needs physical approval.
+def test_only_removing_a_holding_is_sensitive() -> None:
+    # Version 1.0 has exactly one operation that needs physical approval:
+    # the one that destroys data. Adding another is a deliberate change.
     tools = [
         cells
         for cells in _table_rows(_read(PERMISSIONS))
@@ -205,8 +206,10 @@ def test_no_planned_tool_is_sensitive() -> None:
     ]
 
     assert tools, "expected the planned tools table"
+    sensitive = [name for name, _, _, risk in tools if risk == "Sensitive"]
+    assert sensitive == ["`portfolio_remove_holding`"]
     for name, _, _, risk in tools:
-        assert risk in {"Low", "Medium"}, f"{name} has risk {risk!r}"
+        assert risk in {"Low", "Medium", "Sensitive"}, f"{name} has risk {risk!r}"
 
 
 # --- Architecture -------------------------------------------------------------

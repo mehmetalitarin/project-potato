@@ -5,11 +5,13 @@ Three tools, as listed in ``docs/permissions.md``:
 - ``portfolio_summary`` (low risk): every holding, with what it cost.
 - ``portfolio_add_holding`` (medium risk): record a holding, or replace the
   one already recorded for that symbol.
-- ``portfolio_remove_holding`` (medium risk): remove a holding.
+- ``portfolio_remove_holding`` (sensitive): remove a holding.
 
 Medium risk means voice cannot change the portfolio: only typed requests and
-the interface can (P6). The gate checks every argument before a handler runs,
-so the handlers here receive only valid symbols and exact decimal text.
+the interface can (P6). Removing is sensitive because it destroys data: it
+runs only after the user approves it in the approval dialog (P7). The gate
+checks every argument before a handler runs, so the handlers here receive
+only valid symbols and exact decimal text.
 
 Nothing here talks to the network. Current prices, value and profit or loss
 need market data, which arrives in a later commit. Until then the summary
@@ -133,7 +135,9 @@ def portfolio_tools(database_path: Path) -> tuple[ToolDefinition, ...]:
         ),
         ToolDefinition(
             name="portfolio_remove_holding",
-            risk=RiskLevel.MEDIUM,
+            # The one tool that destroys data, so it needs a real click on
+            # Approve in the approval dialog.
+            risk=RiskLevel.SENSITIVE,
             arguments={"symbol": SYMBOL_FIELD},
             handler=remove,
             description="Remove the holding for a ticker symbol in capitals.",

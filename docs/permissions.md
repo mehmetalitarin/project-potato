@@ -3,8 +3,8 @@
 > **Status: design document.** The gate itself is built
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
 > file, and so are physical approvals (`approvals.py`) and the approval dialog
-> (`src/potato/ui/approval.py`). No built tool is sensitive yet, so the
-> dialog is tested with tools that exist only in the tests. The portfolio, calendar and deadline tools, the
+> (`src/potato/ui/approval.py`). Removing a portfolio holding is the one
+> sensitive tool, so it is the one that needs the dialog. The portfolio, calendar and deadline tools, the
 > link analyser, the application launcher, the security posture check, the process and network overviews and the update check are built (`src/potato/modules/`); the other planned tools arrive in later
 > milestones. A test checks that each built tool appears in the table below
 > with the same risk level.
@@ -83,9 +83,11 @@ version 1.0: running commands or code, reading or changing files,
 administrator actions, changing system settings, installing software,
 sending messages, making calls, trading and remote control.
 
-**Version 1.0 has no sensitive tool.** The approval mechanism is built and
-tested with a tool that exists only in the test suite, so it is proven
-before anything depends on it.
+**Version 1.0 has one sensitive tool: removing a portfolio holding**, the only
+tool that destroys data. The approval mechanism was built and tested with a
+tool that exists only in the test suite first, so it was proven before
+anything depended on it. Any other tool becoming sensitive is a deliberate
+change: a test pins the list.
 
 ## Planned tools for version 1.0
 
@@ -97,7 +99,7 @@ tool, and a tool that is not in this table must not be in the code.
 | `open_app` | Opens an approved application | One name from a fixed list | Low |
 | `portfolio_summary` | Shows holdings and what they cost; value, profit and loss arrive with market data | None | Low |
 | `portfolio_add_holding` | Records a holding | Symbol (strict pattern), quantity, average price (bounded numbers) | Medium |
-| `portfolio_remove_holding` | Removes a holding | Symbol (strict pattern) | Medium |
+| `portfolio_remove_holding` | Removes a holding, after the user approves it in the dialog | Symbol (strict pattern) | Sensitive |
 | `calendar_upcoming` | Lists upcoming events | Number of days, bounded | Low |
 | `homework_deadlines` | Lists upcoming deadlines | Number of days, bounded | Low |
 | `security_posture` | Reads whether disk encryption, the firewall, Gatekeeper and System Integrity Protection are on; cannot change them | None | Low |
