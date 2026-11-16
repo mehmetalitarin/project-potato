@@ -210,6 +210,10 @@ person clicks. What it guarantees:
   drawn by code from Potato's state alone. The state always wins: the orb
   can never look busy or attentive while Potato is asleep, so it doubles as a
   microphone indicator. It animates only while it can be seen.
+- **The dashboard goes through the gate.** The security dashboard runs its
+  read-only tools through the gate as `interface`, so each run is checked,
+  rate-limited and audited, and shows their own data formatted by code. The
+  model is not involved.
 - **No way out.** No part of Potato may use Qt to open links or files in
   other applications, start programs or run scripts (`tests/test_architecture.py`).
 

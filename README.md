@@ -45,6 +45,7 @@ chat window, not a voice assistant. Everything that's there is tested.
 | Model unloaded from memory when idle | Done |
 | Conversation memory, without letting outside text choose a tool | Done |
 | The orb: an animated status indicator, in the window or floating above other apps | Done |
+| Security dashboard: protections, programs, network and updates on one screen | Done |
 | Voice: wake word, speech-to-text, text-to-speech | Next |
 | Dependency scan | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
