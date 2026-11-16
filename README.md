@@ -44,6 +44,7 @@ chat window, not a voice assistant. Everything that's there is tested.
 | Starting Potato as an app: `python -m potato` opens the window, connected to the model and tools | Done |
 | Model unloaded from memory when idle | Done |
 | Conversation memory, without letting outside text choose a tool | Done |
+| The orb: an animated status indicator, in the window or floating above other apps | Done |
 | Voice: wake word, speech-to-text, text-to-speech | Next |
 | Dependency scan | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
