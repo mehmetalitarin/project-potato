@@ -40,7 +40,8 @@ window or voice input yet, so Potato cannot be used as an app.
 | Application launcher: Apple's apps only, checked to be the system-installed copy before opening | Done |
 | Calendar and homework deadlines from Apple Calendar, read-only | Done |
 | Security posture: disk encryption, firewall, Gatekeeper and System Integrity Protection, read-only | Done |
-| Security monitors: processes and network | Next |
+| Process overview: what is running and what uses the most, without reading command lines | Done |
+| Network overview | Next |
 | Live prices in the portfolio summary (optional; needs a Finnhub key) | Set aside |
 | Everything else | Not started |
 
