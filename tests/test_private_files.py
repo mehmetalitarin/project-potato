@@ -25,7 +25,23 @@ def test_a_new_folder_is_created_private(tmp_path: Path) -> None:
 def test_a_file_where_the_folder_should_be_is_refused(tmp_path: Path) -> None:
     (tmp_path / "logs").write_text("", encoding="utf-8")
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(PrivateFileError):
+        ensure_private_directory(tmp_path / "logs")
+
+
+def test_a_folder_that_cannot_be_created_is_refused(tmp_path: Path) -> None:
+    # A file is in the way of a parent folder.
+    (tmp_path / "blocked").write_text("", encoding="utf-8")
+
+    with pytest.raises(PrivateFileError):
+        ensure_private_directory(tmp_path / "blocked" / "logs")
+
+
+def test_a_link_where_the_folder_should_be_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "logs").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+
+    with pytest.raises(PrivateFileError):
         ensure_private_directory(tmp_path / "logs")
 
 

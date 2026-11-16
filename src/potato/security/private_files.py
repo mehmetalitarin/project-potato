@@ -22,12 +22,16 @@ def ensure_private_directory(path: Path) -> None:
         path: The folder to create or check.
 
     Raises:
-        PrivateFileError: The path is a link, is not a folder or belongs to
-            another user.
+        PrivateFileError: The path is a link, is not a folder, belongs to
+            another user or could not be created.
     """
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # lstat, not stat: a link here could point the files somewhere unexpected.
-    status = path.lstat()
+    try:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # lstat, not stat: a link here could point the files somewhere unexpected.
+        status = path.lstat()
+    except OSError as error:
+        # For example, a file is in the way or a parent folder is read-only.
+        raise PrivateFileError("the folder could not be created or read") from error
     if not stat.S_ISDIR(status.st_mode):
         raise PrivateFileError("the folder path is not a real folder")
     if status.st_uid != os.getuid():

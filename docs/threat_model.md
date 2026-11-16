@@ -219,8 +219,7 @@ lands. Tests 10 and 11 exist today, in `tests/test_config.py` and
 Tests 3 and 4 exist in `tests/test_gate.py` and `tests/test_tools.py`,
 tests 6, 7 and 8 in `tests/test_approvals.py`, tests 1 and 2 in
 `tests/test_gate_security.py` and `tests/test_architecture.py`, and tests 5
-and 12 in `tests/test_turns.py`, and test 9 in `tests/test_launcher.py`. Test 14
-does not exist yet.
+and 12 in `tests/test_turns.py`, test 9 in `tests/test_launcher.py`, and test 14 in `tests/test_app.py`.
 
 | # | Tests must prove that | Threat | Lands in |
 | --- | --- | --- | --- |
@@ -237,7 +236,7 @@ does not exist yet.
 | 11 | Secrets are not written to logs. | T-DATA-1 | M1 |
 | 12 | The application functions safely when Ollama is unavailable. | T-LLM-7 | M3 |
 | 13 | The application enters standby correctly. | T-VOICE-4 | M1 |
-| 14 | The model unloads after the idle timeout. | None: a resource requirement, tested all the same | M7 |
+| 14 | The model unloads after the idle timeout. | None: a resource requirement, tested all the same | M8 |
 
 ## Keeping this document true
 

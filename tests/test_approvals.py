@@ -233,15 +233,20 @@ def test_saying_yes_is_not_an_approval(
     assert ran == []
 
 
-def test_only_the_interface_package_refers_to_the_issuer() -> None:
+def test_only_the_interface_and_start_up_refer_to_the_issuer() -> None:
     # R4: the names that can make an approval appear in the module that
-    # defines them and, later, in the interface. Nowhere else.
+    # defines them and in the interface. The start-up module makes the pair,
+    # and tests/test_app.py checks that it hands the maker to the window and
+    # does nothing else with it. Nowhere else may refer to these names.
     for path in SOURCE.rglob("*.py"):
         relative = path.relative_to(SOURCE).as_posix()
         if relative == "security/approvals.py" or relative.startswith("ui/"):
             continue
         text = path.read_text(encoding="utf-8")
-        for name in ("ApprovalIssuer", "create_approval_pair", "_tag(", "_message("):
+        names = ["ApprovalIssuer", "_tag(", "_message("]
+        if relative != "app.py":
+            names.append("create_approval_pair")
+        for name in names:
             assert name not in text, f"{relative} refers to {name}"
 
 

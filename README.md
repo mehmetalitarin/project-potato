@@ -15,10 +15,9 @@ gate") that the model can't talk its way around.
 
 ## Where it's at
 
-**Pre-alpha.** The window exists but isn't connected to everything yet, and
-there's no voice input, so you can't use Potato as an app. What's there so
-far is the security core, the connection to the local model, most of the
-tools and the main window, all tested.
+**Pre-alpha.** You can start Potato and type to it: it answers using the
+local model and can use its tools. There's no voice yet, so for now it's a
+chat window, not a voice assistant. Everything that's there is tested.
 
 | Part | State |
 | --- | --- |
@@ -42,9 +41,10 @@ tools and the main window, all tested.
 | Security update check (lists only, never installs) | Done |
 | Desktop window: typed chat and Potato's state, plain text only | Done |
 | Approval dialog: shows the exact action, Deny by default, real clicks only | Done |
-| Starting Potato as an app, with the window connected to the model and tools | Next |
+| Starting Potato as an app: `python -m potato` opens the window, connected to the model and tools | Done |
+| Model unloaded from memory when idle | Done |
+| Voice: wake word, speech-to-text, text-to-speech | Next |
 | Dependency scan | Not started |
-| Voice: wake word, speech-to-text, text-to-speech | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
 
 I only mark something as done once it's built and tested.
@@ -123,6 +123,15 @@ python -m potato --version
 python -m potato --check-settings
 ```
 
+Then start it:
+
+```bash
+python -m potato
+```
+
+Type a request and press Return. Potato starts asleep and wakes when you
+type. Closing the window shuts everything down.
+
 For conversations you also need Ollama and the model (one download):
 
 ```bash
@@ -173,8 +182,7 @@ approval_lifetime_seconds = 30
 ```
 
 Every number has a fixed minimum and maximum, and an unknown setting is an
-error. `python -m potato --check-settings` checks the file for you. Nothing
-uses these settings yet; that comes with the window and voice parts.
+error. `python -m potato --check-settings` checks the file for you.
 
 ## Stock prices
 
