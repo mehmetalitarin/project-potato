@@ -344,7 +344,7 @@ def test_a_typed_request_reaches_the_model_and_the_reply_is_shown(
     assert lines(potato) == [f"{YOU}: hello", f"{POTATO}: Hello from the model."]
     assert now(potato) is AssistantState.ACTIVE
     (chat,) = requests_to(server, "/api/chat")
-    assert chat["model"] == "qwen3:8b"
+    assert chat["model"] == "qwen3:14b"
     assert {tool["function"]["name"] for tool in chat["tools"]} == set(ENABLED)
 
 
@@ -363,14 +363,14 @@ def test_potato_remembers_the_conversation_until_it_sleeps(
     assert [m["role"] for m in third] == ["system", "user"]
 
 
-def test_the_larger_model_can_be_chosen(
+def test_the_smaller_model_can_be_chosen(
     qt: QApplication, server: FakeOllama, locations: Locations
 ) -> None:
-    settings = parse_settings(f'[ollama]\nport = {server.port}\nmodel = "qwen3:14b"\n')
+    settings = parse_settings(f'[ollama]\nport = {server.port}\nmodel = "qwen3:8b"\n')
     application = build(settings, locations)
     try:
         say(qt, application, "hello")
-        assert requests_to(server, "/api/chat")[0]["model"] == "qwen3:14b"
+        assert requests_to(server, "/api/chat")[0]["model"] == "qwen3:8b"
     finally:
         application.close()
 
@@ -524,7 +524,7 @@ def test_the_model_unloads_after_the_idle_timeout(
         assert application.check_idle() is True
         assert now(application) is AssistantState.STANDBY
         wait_for(qt, lambda: bool(_unloads(server)))
-        assert _unloads(server) == [{"model": "qwen3:8b", "keep_alive": 0}]
+        assert _unloads(server) == [{"model": "qwen3:14b", "keep_alive": 0}]
     finally:
         application.close()
 
@@ -610,7 +610,7 @@ def test_the_model_unloads_whenever_potato_leaves_the_active_state(
         else:
             application.close()
         wait_for(qt, lambda: bool(_unloads(server)))
-        assert _unloads(server) == [{"model": "qwen3:8b", "keep_alive": 0}]
+        assert _unloads(server) == [{"model": "qwen3:14b", "keep_alive": 0}]
     finally:
         application.close()
 
@@ -629,7 +629,7 @@ def test_a_failed_unload_is_logged_and_nothing_else_happens(
     server: FakeOllama, caplog: pytest.LogCaptureFixture
 ) -> None:
     client = OllamaClient(
-        "127.0.0.1", server.port, "qwen3:8b",
+        "127.0.0.1", server.port, "qwen3:14b",
         timeout_seconds=1.0, context_length=4096, keep_alive_seconds=60,
     )  # fmt: skip
     server.close()

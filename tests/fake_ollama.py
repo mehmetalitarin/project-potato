@@ -11,7 +11,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-MODEL = "qwen3:8b"
+MODEL = "qwen3:14b"
 
 Responder = Callable[[BaseHTTPRequestHandler, str, dict[str, Any] | None], None]
 

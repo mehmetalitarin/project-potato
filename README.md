@@ -136,12 +136,12 @@ type. Closing the window shuts everything down.
 For conversations you also need Ollama and the model (one download):
 
 ```bash
-ollama pull qwen3:8b
+ollama pull qwen3:14b
 ```
 
-With 16 GB of memory or more, the larger `qwen3:14b` is noticeably smarter
-and replies a bit more slowly. Pull it and set `model = "qwen3:14b"` in the
-settings below.
+It needs about 16 GB of memory. On a Mac with less, use the smaller
+`qwen3:8b` instead (`ollama pull qwen3:8b`, then set `model = "qwen3:8b"` in
+the settings below): it's quicker but not as clever.
 
 If Ollama isn't running or the model isn't there, Potato just says so.
 
@@ -175,7 +175,7 @@ Potato works with built-in defaults. If you want to change them, create
 [ollama]
 host = "127.0.0.1"             # loopback IP addresses only; host names are refused
 port = 11434
-model = "qwen3:8b"             # "qwen3:8b" or "qwen3:14b"; others are refused
+model = "qwen3:14b"            # "qwen3:14b" or "qwen3:8b"; others are refused
 request_timeout_seconds = 60
 context_length = 8192
 

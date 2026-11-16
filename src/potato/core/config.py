@@ -126,7 +126,7 @@ class OllamaSettings:
 
     host: str = "127.0.0.1"
     port: int = 11434
-    model: str = "qwen3:8b"
+    model: str = "qwen3:14b"
     request_timeout_seconds: float = 60.0
     context_length: int = 8192
 
