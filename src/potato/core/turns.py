@@ -31,7 +31,7 @@ import json
 import logging
 import threading
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Final, Protocol
 
@@ -100,7 +100,13 @@ class ToolOutcome:
         reason: Why not, when it did not.
         result: The tool's output as plain data, for the interface to show.
         pending: The action awaiting the user's approval, if that is why it
-            did not run.
+            did not run. This is the gate's validated copy, and the only
+            thing the interface may show.
+        proposal: Only with ``pending``: the proposal as the model made it,
+            for the interface to hand back to the gate with an approval. It
+            is untrusted and is never shown. The gate checks it again from
+            the start, and the approval is valid only if that check produces
+            exactly the action in ``pending``.
     """
 
     tool: str | None
@@ -108,6 +114,8 @@ class ToolOutcome:
     reason: ReasonCode | None
     result: Mapping[str, object] | None
     pending: ApprovalRequest | None
+    # Left out of the printed form: it is untrusted model output.
+    proposal: object = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +274,7 @@ def _outcome(proposal: object, result: GateResult, offered_names: frozenset[str]
         reason=result.reason,
         result=result.result if result.ok is True else None,
         pending=result.pending,
+        proposal=proposal if result.pending is not None else None,
     )
 
 

@@ -2,8 +2,9 @@
 
 > **Status: design document.** The gate itself is built
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
-> file, and so are physical approvals (`approvals.py`). The approval dialog
-> arrives with the interface. The portfolio, calendar and deadline tools, the
+> file, and so are physical approvals (`approvals.py`) and the approval dialog
+> (`src/potato/ui/approval.py`). No built tool is sensitive yet, so the
+> dialog is tested with tools that exist only in the tests. The portfolio, calendar and deadline tools, the
 > link analyser, the application launcher, the security posture check, the process and network overviews and the update check are built (`src/potato/modules/`); the other planned tools arrive in later
 > milestones. A test checks that each built tool appears in the table below
 > with the same risk level.
@@ -122,14 +123,26 @@ Voice confirmation is never accepted. An approval works like this:
    `APPROVAL_REQUIRED` and hands the interface a description of the exact
    tool and validated arguments.
 2. The interface shows a dialog. Its text is built by code from those
-   validated arguments. Nothing written by the model appears in it. The
-   default button is "Deny".
-3. If the user clicks "Approve" or presses the matching key, the interface
-   creates an approval token: a keyed hash (HMAC-SHA-256) over the tool
+   validated arguments: the tool's name, a fixed sentence about the tool,
+   and each argument shown exactly, text in quotation marks and numbers
+   bare. Nothing the model wrote as prose appears in it. If any argument
+   cannot be shown exactly (it is longer than 120 characters, or contains
+   characters that are invisible, change the direction of text or could be
+   taken for a space), no dialog is shown and the action is denied. The
+   default button is "Deny": Return, Escape, closing the dialog and waiting
+   a minute all deny.
+3. "Approve" is disabled for the first second and a half, and again whenever
+   the dialog comes back to the front, so a press already on its way cannot
+   approve. It acts only on a real mouse click or key press delivered by
+   macOS; a press made by code does nothing. If the user approves, and
+   Potato is still active, the interface creates an approval token: a keyed hash (HMAC-SHA-256) over the tool
    name, the arguments in a canonical form, a random nonce and two expiry
    times. The decision is written to the audit log first; if it cannot be,
    no token is made.
-4. The request is submitted again with the token. The gate recomputes the
+4. The request is submitted again with the token, with the same origin as
+   before: approving never changes where a request came from. What is
+   submitted is the model's original proposal, which the interface never
+   shows; the gate checks it again from the start. The gate recomputes the
    hash over the arguments it is about to execute and compares in constant
    time. It checks the expiry and that the nonce has not been seen, marks
    the nonce as used, and only then goes on to the remaining checks and the
@@ -142,7 +155,7 @@ does not help a voice request.
 | Requirement | How it is met |
 | --- | --- |
 | Started from the interface or keyboard | Making and checking are separate objects. The maker is handed to the `ui` package only, and a test fails if other code refers to it (R4 in [architecture.md](architecture.md)). |
-| Clearly describes the action | Dialog text comes from validated arguments, not from the model. |
+| Clearly describes the action | Dialog text comes from validated arguments, not from the model, and an action that cannot be shown exactly cannot be approved (`tests/test_approval_dialog.py`). |
 | Tied to the exact action and arguments | The hash covers the tool name and canonical arguments. |
 | Expires quickly | Two expiry times inside the hash; default 30 seconds, adjustable only within fixed bounds. One clock cannot be turned back and the other keeps counting while the Mac sleeps. Either can end an approval. |
 | Invalid if any argument changes | A changed argument gives a different hash. |
@@ -157,8 +170,12 @@ binding between "what the user saw" and "what runs" a single check that
 cannot be half-implemented: if anything differs, verification fails.
 
 **Known limits.** Software that the user has allowed to control the
-computer can imitate a click. A user can approve without reading. Neither
-can be prevented from inside Potato (T-APPR-4).
+computer can produce real clicks and key presses. A user can approve without
+reading. Letters from other alphabets can look identical to English ones;
+the dialog warns when a detail contains any, but cannot tell which was
+meant. None of these can be prevented from inside Potato (T-APPR-4). A
+screen reader's "press" action counts as a press made by code, so Approve
+must be pressed with the mouse or the space bar.
 
 ## Reason codes
 

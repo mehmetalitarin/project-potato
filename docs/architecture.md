@@ -173,8 +173,19 @@ person clicks. What it guarantees:
 - **No way out.** No part of Potato may use Qt to open links or files in
   other applications, start programs or run scripts (`tests/test_architecture.py`).
 
-The approval dialog arrives next and will be the only place an approval can
-be given (R4).
+The approval dialog (`src/potato/ui/approval.py`) is the only place an
+approval can be given (R4):
+
+- **What is shown is what runs.** Its text is built by code from the gate's
+  validated copy of the action. An action that cannot be shown exactly
+  cannot be approved.
+- **Deny by default.** Return, Escape, closing the dialog, a minute without
+  an answer and Potato leaving the active state all deny.
+- **A real press only.** Approve acts only on a mouse or key event from the
+  window system, and not in the first moment after the dialog appears.
+- **Straight to the gate.** The approval is made inside the handler of that
+  press, handed to the gate with the original origin, used once and never
+  stored.
 
 ## Where data lives
 

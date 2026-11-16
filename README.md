@@ -41,7 +41,8 @@ tools and the main window, all tested.
 | Network overview (never shows remote addresses) | Done |
 | Security update check (lists only, never installs) | Done |
 | Desktop window: typed chat and Potato's state, plain text only | Done |
-| Approval dialog | Next |
+| Approval dialog: shows the exact action, Deny by default, real clicks only | Done |
+| Starting Potato as an app, with the window connected to the model and tools | Next |
 | Dependency scan | Not started |
 | Voice: wake word, speech-to-text, text-to-speech | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |

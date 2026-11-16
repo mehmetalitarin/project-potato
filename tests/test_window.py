@@ -443,5 +443,7 @@ def test_the_interface_never_renders_rich_text() -> None:
     forbidden = {
         "setHtml", "insertHtml", "appendHtml", "toHtml", "QTextBrowser", "QTextEdit",
         "RichText", "MarkdownText", "setMarkdown", "QWebEngineView", "QToolTip",
+        # Ready-made dialogs guess whether their text is rich text.
+        "QMessageBox", "QInputDialog", "QErrorMessage", "setToolTip", "setWhatsThis",
     }  # fmt: skip
     assert not forbidden & _ui_names()
