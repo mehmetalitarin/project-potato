@@ -2,9 +2,11 @@
 
 So far: ``ollama``, the client for the local model server; ``market_data``,
 the client for market prices; ``processes``, the only code allowed to start
-another program; and ``calendar``, which reads Apple Calendar, read-only.
+another program (it opens checked applications and runs a fixed list of
+Apple's read-only status tools); and ``calendar``, which reads Apple
+Calendar, read-only.
 
-Planned: read-only system probes.
+Planned: read-only process and network probes.
 
 Boundary: integrations accept typed, validated arguments only. They never
 accept free-form text from the model, and everything they return is treated
