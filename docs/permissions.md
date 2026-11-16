@@ -4,7 +4,7 @@
 > (`src/potato/security/gate.py` and `tools.py`) and tested against this
 > file, and so are physical approvals (`approvals.py`). The approval dialog
 > arrives with the interface. The portfolio, calendar and deadline tools, the
-> link analyser and the application launcher are built (`src/potato/modules/`); the other planned tools arrive in later
+> link analyser, the application launcher and the security posture check are built (`src/potato/modules/`); the other planned tools arrive in later
 > milestones. A test checks that each built tool appears in the table below
 > with the same risk level.
 
@@ -99,7 +99,7 @@ tool, and a tool that is not in this table must not be in the code.
 | `portfolio_remove_holding` | Removes a holding | Symbol (strict pattern) | Medium |
 | `calendar_upcoming` | Lists upcoming events | Number of days, bounded | Low |
 | `homework_deadlines` | Lists upcoming deadlines | Number of days, bounded | Low |
-| `security_posture` | Reads disk encryption, firewall and Gatekeeper status | None | Low |
+| `security_posture` | Reads whether disk encryption, the firewall, Gatekeeper and System Integrity Protection are on; cannot change them | None | Low |
 | `process_overview` | Lists running processes and unusual resource use | None | Low |
 | `network_overview` | Lists this Mac's connections and listening ports | None | Low |
 | `analyse_link` | Examines a link's text for signs of phishing | The link as text, length-capped; never opened | Low |

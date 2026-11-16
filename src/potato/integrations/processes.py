@@ -1,25 +1,40 @@
 """The only code in Potato that may start another program (R3).
 
 Everything that starts a process goes through this file, so there is one
-place to review. Today it does one thing: ask macOS to open an application
-that the launcher has already checked (T-TOOL-1, T-TOOL-3).
+place to review (T-TOOL-1, T-TOOL-3). It does two things:
+
+- asks macOS to open an application that the launcher has already checked;
+- runs one of a fixed list of Apple's read-only status tools, the *probes*,
+  and returns what it printed.
 
 The rules every process follows here:
 
 - **A fixed program at an absolute path.** Nothing is looked up through the
   ``PATH`` setting, so a planted program of the same name is never found.
-- **Fixed arguments.** The only variable part is an application path, and
-  this module re-checks that it lies inside a standard applications folder.
-  No text from the model or from external data is passed on.
+- **Fixed arguments.** The only variable part anywhere is an application
+  path, and this module re-checks that it lies inside a standard
+  applications folder. A probe is chosen by name from the list below; a
+  caller cannot supply a program or an argument. No text from the model or
+  from external data is passed on.
 - **No shell.** Arguments go to the program as a list, so nothing in them is
   ever read as a command.
 - **Nothing in, nothing out.** Input and output are discarded, and the
   environment holds only a search path for the system's own programs.
 - **A time limit.** A program that does not finish in time is stopped.
+- **An output cap.** A probe that prints more than a few kilobytes is
+  stopped, and what it printed is thrown away.
+
+The probes only read settings. None can change one, and none needs
+administrator rights.
 """
 
+import contextlib
 import os
+import select
 import subprocess  # Allowed in this module only; see R3 in docs/architecture.md.
+import time
+from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path
 from typing import Final
 
@@ -34,8 +49,24 @@ APPLICATION_FOLDERS: Final = (
     Path("/Applications"),
 )
 
-# The whole environment a started program receives.
+# The whole environment a started program receives. With no language set,
+# Apple's tools answer in their default wording, which the callers rely on.
 _ENVIRONMENT: Final = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+
+PROBE_TIMEOUT_SECONDS: Final = 5.0
+MAX_PROBE_OUTPUT_BYTES: Final = 4096
+
+
+class Probe(Enum):
+    """The read-only status commands Potato may run. Nothing else can be run.
+
+    Each value is the complete command: an absolute path and fixed arguments.
+    """
+
+    FILEVAULT = ("/usr/bin/fdesetup", "status")
+    FIREWALL = ("/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate")
+    GATEKEEPER = ("/usr/sbin/spctl", "--status")
+    SYSTEM_INTEGRITY = ("/usr/bin/csrutil", "status")
 
 
 def _is_application_path(path: Path) -> bool:
@@ -79,3 +110,90 @@ def open_application(path: Path) -> bool:
         # is not kept.
         return False
     return finished.returncode == 0
+
+
+def run_probe(probe: Probe) -> str | None:
+    """Run one probe and return what it printed, or ``None`` if it could not be read.
+
+    The exit code is not used: some of these tools exit with an error code
+    simply to say a setting is off. Callers decide from the text, which they
+    must treat as untrusted and match against exact expected lines.
+
+    Raises:
+        ValueError: ``probe`` is not a member of ``Probe``. Nothing was
+            started.
+    """
+    if not isinstance(probe, Probe):
+        raise ValueError("only a listed probe can be run")
+    output = _run_bounded(probe.value)
+    if output is None:
+        return None
+    try:
+        return output.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+def _run_bounded(
+    command: Sequence[str],
+    *,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
+    max_bytes: int = MAX_PROBE_OUTPUT_BYTES,
+) -> bytes | None:
+    """Run ``command`` and return its output, or ``None`` if it broke a limit.
+
+    Private to this module: the only caller is ``run_probe``, which passes a
+    fixed command from ``Probe``. The limits are enforced while the program
+    runs. A program that prints too much, takes too long, or keeps running
+    after closing its output is killed.
+    """
+    if not command:
+        return None
+    try:
+        process = subprocess.Popen(  # noqa: S603 - fixed command from Probe, no shell
+            list(command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=_ENVIRONMENT,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+    deadline = time.monotonic() + timeout
+    chunks: list[bytes] = []
+    total = 0
+    complete = False
+    try:
+        if process.stdout is None:
+            return None
+        descriptor = process.stdout.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            ready, _, _ = select.select([descriptor], [], [], remaining)
+            if not ready:
+                return None
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                return None
+            chunks.append(chunk)
+        # The output is closed. The program must also end in time.
+        process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        complete = True
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    finally:
+        if not complete:
+            process.kill()
+        if process.stdout is not None:
+            process.stdout.close()
+        # Collect the ended program so that it does not linger.
+        with contextlib.suppress(subprocess.SubprocessError):
+            process.wait(timeout=5.0)
+    return b"".join(chunks)
