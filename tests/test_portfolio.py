@@ -12,6 +12,7 @@ import pytest
 from potato.core.turns import TurnEngine, TurnStatus
 from potato.integrations.ollama import Message, Reply
 from potato.modules.portfolio import MAX_HOLDINGS_LISTED, portfolio_tools
+from potato.security.approvals import ApprovalIssuer, create_approval_pair
 from potato.security.audit import AuditLog
 from potato.security.gate import MESSAGES, Gate, GateResult, ReasonCode, RequestOrigin
 from potato.security.redaction import Redactor
@@ -28,14 +29,43 @@ def database_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def gate(tmp_path: Path, database_path: Path) -> Iterator[Gate]:
+def issuer_and_gate(tmp_path: Path, database_path: Path) -> Iterator[tuple[ApprovalIssuer, Gate]]:
     with AuditLog(tmp_path / "logs" / "audit.jsonl", Redactor()) as audit:
+        issuer, verifier = create_approval_pair(30.0, audit)
         # Generous limits so that tests can make many calls.
-        yield Gate(portfolio_tools(database_path), audit, max_submissions=1000)
+        yield (
+            issuer,
+            Gate(portfolio_tools(database_path), audit, approvals=verifier, max_submissions=1000),
+        )
+
+
+@pytest.fixture
+def gate(issuer_and_gate: tuple[ApprovalIssuer, Gate]) -> Gate:
+    return issuer_and_gate[1]
+
+
+@pytest.fixture
+def issuer(issuer_and_gate: tuple[ApprovalIssuer, Gate]) -> ApprovalIssuer:
+    return issuer_and_gate[0]
 
 
 def _call(gate: Gate, tool: str, origin: RequestOrigin = TYPED, **arguments: object) -> GateResult:
     return gate.submit({"tool": tool, "arguments": arguments}, origin)
+
+
+def _approved(
+    gate: Gate,
+    issuer: ApprovalIssuer,
+    tool: str,
+    origin: RequestOrigin = TYPED,
+    **arguments: object,
+) -> GateResult:
+    """Ask, approve exactly what the gate says is waiting, then ask again."""
+    proposal = {"tool": tool, "arguments": arguments}
+    first = gate.submit(proposal, origin)
+    assert first.reason is ReasonCode.APPROVAL_REQUIRED, first
+    assert first.pending is not None
+    return gate.submit(proposal, origin, issuer.approve(first.pending))
 
 
 def _holdings(database_path: Path) -> list[Holding]:
@@ -56,7 +86,9 @@ def test_an_empty_portfolio(gate: Gate) -> None:
     }
 
 
-def test_add_list_replace_and_remove(gate: Gate, database_path: Path) -> None:
+def test_add_list_replace_and_remove(
+    gate: Gate, issuer: ApprovalIssuer, database_path: Path
+) -> None:
     added = _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=2.5, average_price=150.1)
     assert added.result == {
         "symbol": "AAPL",
@@ -80,11 +112,11 @@ def test_add_list_replace_and_remove(gate: Gate, database_path: Path) -> None:
         {"symbol": "BRK.B", "quantity": "1", "average_price": "400", "cost": "400.00"},
     ]
 
-    assert _call(gate, "portfolio_remove_holding", symbol="AAPL").result == {
+    assert _approved(gate, issuer, "portfolio_remove_holding", symbol="AAPL").result == {
         "symbol": "AAPL",
         "removed": True,
     }
-    assert _call(gate, "portfolio_remove_holding", symbol="AAPL").result == {
+    assert _approved(gate, issuer, "portfolio_remove_holding", symbol="AAPL").result == {
         "symbol": "AAPL",
         "removed": False,
     }
@@ -132,9 +164,46 @@ def test_the_largest_portfolio_still_fits(gate: Gate, database_path: Path) -> No
 
 
 @pytest.mark.parametrize("origin", [TYPED, INTERFACE])
-def test_typed_and_interface_can_change_the_portfolio(gate: Gate, origin: RequestOrigin) -> None:
+def test_typed_and_interface_can_change_the_portfolio(
+    gate: Gate, issuer: ApprovalIssuer, origin: RequestOrigin
+) -> None:
     assert _call(gate, "portfolio_add_holding", origin, symbol="A", quantity=1, average_price=1).ok
-    assert _call(gate, "portfolio_remove_holding", origin, symbol="A").ok
+    assert _approved(gate, issuer, "portfolio_remove_holding", origin, symbol="A").ok
+
+
+def test_removing_a_holding_waits_for_approval(gate: Gate, database_path: Path) -> None:
+    _call(gate, "portfolio_add_holding", symbol="A", quantity=1, average_price=1)
+    waiting = _call(gate, "portfolio_remove_holding", symbol="A")
+    assert not waiting.ok
+    assert waiting.reason is ReasonCode.APPROVAL_REQUIRED
+    assert waiting.pending is not None
+    assert waiting.pending.tool == "portfolio_remove_holding"
+    assert dict(waiting.pending.arguments) == {"symbol": "A"}
+    assert _holdings(database_path) == [Holding("A", Decimal(1), Decimal(1))]
+
+
+def test_an_approval_for_one_holding_cannot_remove_another(
+    gate: Gate, issuer: ApprovalIssuer, database_path: Path
+) -> None:
+    for symbol in ("A", "B"):
+        _call(gate, "portfolio_add_holding", symbol=symbol, quantity=1, average_price=1)
+    waiting = _call(gate, "portfolio_remove_holding", symbol="A")
+    assert waiting.pending is not None
+    approval = issuer.approve(waiting.pending)
+    other = gate.submit(
+        {"tool": "portfolio_remove_holding", "arguments": {"symbol": "B"}}, TYPED, approval
+    )
+    assert other.reason is ReasonCode.APPROVAL_INVALID
+    assert [holding.symbol for holding in _holdings(database_path)] == ["A", "B"]
+
+
+def test_removing_is_the_sensitive_tool(database_path: Path) -> None:
+    risks = {tool.name: tool.risk for tool in portfolio_tools(database_path)}
+    assert risks == {
+        "portfolio_summary": RiskLevel.LOW,
+        "portfolio_add_holding": RiskLevel.MEDIUM,
+        "portfolio_remove_holding": RiskLevel.SENSITIVE,
+    }
 
 
 def test_voice_can_read_but_not_change_the_portfolio(gate: Gate, database_path: Path) -> None:
@@ -261,8 +330,9 @@ def test_every_tool_is_in_the_documented_table_with_the_same_risk(database_path:
 
 
 def test_descriptions_never_mention_risk_or_approval(database_path: Path) -> None:
+    # The model reads these. Whether a tool needs approval is the gate's
+    # business, not something the model should reason about.
     for tool in portfolio_tools(database_path):
-        assert tool.risk in (RiskLevel.LOW, RiskLevel.MEDIUM)
         lowered = tool.description.lower()
         assert "approv" not in lowered
         assert "risk" not in lowered

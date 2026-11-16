@@ -116,6 +116,7 @@ def test_the_overview_of_a_typical_list() -> None:
         ],
         "connected_programs_total": 4,
         "open_udp_sockets": 1,
+        "other_sockets": 0,
         "unusual_names": 0,
         "unreadable_entries": 0,
         "warnings": [WARNING_OPEN_UDP],
@@ -183,6 +184,39 @@ def test_only_listening_tcp_sockets_are_listed_as_listening(state: str) -> None:
     result = overview(program(5, "x", sock(3, "*:9000", state=state)))
     assert result["listening"] == []
     assert result["summary"] == SUMMARIES["this_mac_only"]
+
+
+def test_other_protocols_are_counted_not_listed() -> None:
+    # Seen on a real Mac: a game with an ICMP socket open, as "ping" uses.
+    listing = program(5, "Game", sock(19, "*:*", protocol="ICMP"), sock(20, "*:*", "ICMPV6"))
+    listing += program(6, "zsh", sock(1, "127.0.0.1:1", state="LISTEN"))
+    result = overview(listing)
+    assert result["other_sockets"] == 2
+    assert result["unreadable_entries"] == 0
+    assert result["warnings"] == []
+    assert result["connected_programs"] == []
+    assert [entry["pid"] for entry in result["listening"]] == [6]
+
+
+def test_an_other_protocol_with_an_address_is_still_not_a_connection() -> None:
+    result = overview(program(5, "x", sock(3, "10.0.0.2:1->8.8.8.8:2", protocol="SCTP")))
+    assert result["connections"] == {THIS_MAC: 0, LOCAL_NETWORK: 0, INTERNET: 0}
+    assert result["other_sockets"] == 1
+
+
+def test_a_udp_socket_without_a_port_is_not_open() -> None:
+    # Seen on a real Mac: many "*:*" UDP sockets that nothing can reach.
+    result = overview(program(5, "sharingd", sock(4, "*:*", "UDP"), sock(10, "*:*", "UDP")))
+    assert result["open_udp_sockets"] == 0
+    assert result["warnings"] == []
+
+
+def test_a_kame_style_link_local_address_is_understood() -> None:
+    # macOS writes the interface into link-local addresses: fe80:e::...
+    address = "[fe80:e::1020:5abf:aee:a3b3]:49238->[fe80:e::832:3fe6:87e5:859e]:53608"
+    result = overview(program(642, "rapportd", sock(19, address, state="ESTABLISHED")))
+    assert result["unreadable_entries"] == 0
+    assert result["connections"][LOCAL_NETWORK] == 1
 
 
 def test_open_udp_is_counted_not_listed_and_warned_about() -> None:
@@ -371,6 +405,7 @@ def test_the_only_free_text_is_plain_program_names() -> None:
         UNUSUAL_NAME,
         THIS_MAC, LOCAL_NETWORK, INTERNET, NETWORK, "summary", "listening", "listening_total",
         "connections", "connected_programs", "connected_programs_total", "open_udp_sockets",
+        "other_sockets",
         "unusual_names", "unreadable_entries", "warnings", "partial", "note", "name", "pid",
         "port", "reach", "total",
     }  # fmt: skip
@@ -393,8 +428,10 @@ def test_the_only_free_text_is_plain_program_names() -> None:
         "f3\nPTCP\nn/tmp/socket\n",
         "f3\nPTCP\nn999.0.0.1:80\nTST=LISTEN\n",
         "f3\nPTCP\nn[::1]:80 extra\nTST=LISTEN\n",
-        "f3\nPICMP\nn1.2.3.4:0\n",
         "f3\nPtcp\nn1.2.3.4:80\n",
+        "f3\nPtcp-6\nn1.2.3.4:80\n",
+        "f3\nP\nn1.2.3.4:80\n",
+        "f3\nPABCDEFGHIJK\nn1.2.3.4:80\n",
         "f3\nPTCP\nPUDP\nn1.2.3.4:80\n",
         "f3\nPTCP\nn1.2.3.4:80\nn1.2.3.4:81\n",
         "f3\nPTCP\nn1.2.3.4:80\nTST=LISTEN; rm -rf\n",

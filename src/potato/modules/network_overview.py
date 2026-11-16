@@ -57,7 +57,10 @@ _BROADCAST: Final = ipaddress.IPv4Address("255.255.255.255")
 
 _PID: Final = re.compile(r"p([0-9]{1,7})")
 _SOCKET: Final = re.compile(r"f([0-9]{1,7})")
-_PROTOCOL: Final = re.compile(r"P(TCP|UDP)")
+# TCP and UDP are reported. Other protocols, such as ICMP (used by "ping"),
+# are recognised and counted, never listed.
+_PROTOCOL: Final = re.compile(r"P([A-Z][A-Z0-9]{0,9})")
+_REPORTED: Final = frozenset({"TCP", "UDP"})
 _TCP_INFO: Final = re.compile(r"T([A-Z]{2})=([A-Za-z0-9_]{0,32})")
 _HOST: Final = r"\*|[0-9.]{7,15}|\[[0-9A-Fa-f:.]{2,45}(?:%[A-Za-z0-9]{1,16})?\]"
 _HOST_PATTERN: Final = re.compile(_HOST)
@@ -249,7 +252,7 @@ def _listening(sockets: list[Socket]) -> Iterator[tuple[Socket, int]]:
 
 def _connected(sockets: list[Socket]) -> Iterator[tuple[Socket, str]]:
     for sock in sockets:
-        if sock.remote_place is not None:
+        if sock.protocol in _REPORTED and sock.remote_place is not None:
             yield sock, sock.remote_place
 
 
@@ -293,9 +296,13 @@ def read_overview(runner: Callable[[Probe], str | None] = run_probe) -> dict[str
     connected = sorted(
         programs.values(), key=lambda entry: (-int(str(entry["total"])), entry["pid"])
     )
+    # "*:*" is a UDP socket with no port yet: nothing can reach it.
     open_udp = [
-        sock for sock in listing.sockets if sock.protocol == "UDP" and sock.remote_place is None
+        sock
+        for sock in listing.sockets
+        if sock.protocol == "UDP" and sock.remote_place is None and sock.local_port
     ]
+    other = sum(1 for sock in listing.sockets if sock.protocol not in _REPORTED)
     udp_to_network = any(sock.local_host != THIS_MAC for sock in open_udp)
 
     unusual = len({sock.pid for sock in listing.sockets if not sock.plain_name})
@@ -320,6 +327,7 @@ def read_overview(runner: Callable[[Probe], str | None] = run_probe) -> dict[str
         "connected_programs": connected[:MAX_CONNECTED_PROGRAMS],
         "connected_programs_total": len(connected),
         "open_udp_sockets": len(open_udp),
+        "other_sockets": other,
         "unusual_names": unusual,
         "unreadable_entries": listing.unreadable,
         "warnings": warnings,

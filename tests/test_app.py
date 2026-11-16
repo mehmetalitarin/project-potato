@@ -14,6 +14,7 @@ import re
 import time
 import tokenize
 from collections.abc import Callable, Iterator, Mapping
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ from potato.security.audit import AUDIT_FILE_NAME, AuditLog, verify_audit_chain
 from potato.security.gate import Gate, RequestOrigin
 from potato.security.redaction import Redactor
 from potato.security.tools import ArgumentValue, ChoiceField, RiskLevel, ToolDefinition
+from potato.storage.database import Database, Holding
 from potato.ui.approval import ApprovalDialog
 from potato.ui.window import POTATO, TEXT_DONE, YOU
 
@@ -180,7 +182,7 @@ ENABLED = {
     "analyse_link": "low",
     "portfolio_summary": "low",
     "portfolio_add_holding": "medium",
-    "portfolio_remove_holding": "medium",
+    "portfolio_remove_holding": "sensitive",
     "security_posture": "low",
     "process_overview": "low",
     "network_overview": "low",
@@ -492,11 +494,35 @@ def test_denying_a_sensitive_action_runs_nothing(
     assert wiped == []
 
 
-def test_the_real_tools_include_nothing_sensitive_yet(tmp_path: Path) -> None:
-    # When one is added, this test should be replaced by one that drives it
-    # through the dialog, as the test above does.
-    risks = {tool.risk for tool in enabled_tools(tmp_path / "potato.sqlite3")}
-    assert RiskLevel.SENSITIVE not in risks
+def test_removing_a_real_holding_needs_a_real_click_on_approve(
+    qt: QApplication, server: FakeOllama, locations: Locations
+) -> None:
+    # The real portfolio tool, the real gate and the real dialog, end to end.
+    server.respond.calls["remove"] = {  # type: ignore[attr-defined]
+        "name": "portfolio_remove_holding",
+        "arguments": {"symbol": "AAPL"},
+    }
+    with Database(locations.database) as database:
+        database.set_holding(Holding("AAPL", Decimal(2), Decimal(150)))
+    application = build(settings_for(server), locations)
+    application.window._approve_delay_ms = 0
+    try:
+        say(qt, application, "remove my apple shares")
+        dialog = _dialog(qt, application)
+        shown = {label.text() for label in dialog.findChildren(QLabel)}
+        assert "Action: portfolio_remove_holding" in shown
+        assert 'symbol: "AAPL"' in shown
+        dialog.approve_button.click()  # A press made by code does nothing.
+        qt.processEvents()
+        with Database(locations.database) as database:
+            assert [holding.symbol for holding in database.holdings()] == ["AAPL"]
+
+        QTest.mouseClick(dialog.approve_button, Qt.MouseButton.LeftButton)
+        wait_for(qt, lambda: lines(application)[-1] == f"{POTATO}: {TEXT_DONE}")
+        with Database(locations.database) as database:
+            assert database.holdings() == []
+    finally:
+        application.close()
 
 
 # --- The model leaves memory (required test 14) ------------------------------
