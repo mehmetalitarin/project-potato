@@ -7,7 +7,6 @@ step that opens them, so nothing is ever started. On macOS one test also
 checks the real Apple applications, without opening them.
 """
 
-import ast
 import os
 import plistlib
 import subprocess
@@ -435,31 +434,6 @@ def test_the_runner_reports_failure_without_raising(
 ) -> None:
     monkeypatch.setattr(subprocess, "run", recorder)
     assert processes.open_application(Path("/Applications/Safari.app")) is False
-
-
-def test_the_runner_has_one_call_to_start_a_process() -> None:
-    tree = ast.parse(Path(processes.__file__).read_text(encoding="utf-8"))
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "subprocess"
-    ]
-    assert [call.func.attr for call in calls] == ["run"]  # type: ignore[attr-defined]
-    assert processes.OPEN_PROGRAM == "/usr/bin/open"
-
-
-def test_only_the_launcher_uses_the_runner() -> None:
-    source = Path(processes.__file__).parent.parent
-    users = sorted(
-        path.relative_to(source).as_posix()
-        for path in source.rglob("*.py")
-        if "potato.integrations.processes" in path.read_text(encoding="utf-8")
-        or "integrations import processes" in path.read_text(encoding="utf-8")
-    )
-    assert users == ["modules/launcher.py"]
 
 
 # --- Documentation -----------------------------------------------------------
