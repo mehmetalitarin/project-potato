@@ -134,6 +134,21 @@ def test_package_imports_follow_the_layers(path: Path) -> None:
         assert target in ALLOWED[package], f"{package} must not import {name}"
 
 
+def test_the_top_level_holds_only_the_entry_point_and_start_up() -> None:
+    top = sorted(path.name for path in SOURCE.glob("*.py"))
+    assert top == ["__init__.py", "__main__.py", "app.py"]
+
+
+@pytest.mark.parametrize("path", FILES, ids=IDS)
+def test_only_the_entry_point_imports_start_up(path: Path) -> None:
+    # potato.app puts everything together, including the object that makes
+    # approvals (R4). No package may import it to reach what it built.
+    if path.relative_to(SOURCE).as_posix() == "__main__.py":
+        return
+    for name in _imports(path):
+        assert not _matches(name, frozenset({"potato.app", "potato.__main__"})), f"imports {name}"
+
+
 @pytest.mark.parametrize("path", FILES, ids=IDS)
 def test_the_orchestrator_cannot_reach_the_tools(path: Path) -> None:
     # R2.
@@ -245,6 +260,7 @@ R5 = test_networking_lives_only_in_integrations
 LISTEN = test_nothing_listens_for_connections
 PYOBJC_RULE = test_only_the_calendar_integration_uses_pyobjc
 QT_RULE = test_qt_cannot_open_links_start_programs_or_run_scripts
+START_UP = test_only_the_entry_point_imports_start_up
 
 
 @pytest.mark.parametrize(
@@ -296,6 +312,12 @@ QT_RULE = test_qt_cannot_open_links_start_programs_or_run_scripts
         ("ui/x.py", "from PySide6.QtQml import QQmlEngine\n", QT_RULE),
         ("ui/x.py", "import PySide6.QtQuick\n", QT_RULE),
         ("modules/x.py", "from PySide6.QtCore import QLibrary\n", QT_RULE),
+        ("voice/x.py", "import potato.app\n", START_UP),
+        ("voice/x.py", "from potato import app\n", START_UP),
+        ("ui/x.py", "from potato.app import build\n", START_UP),
+        ("core/x.py", "def f():\n    from potato.app import Application\n", START_UP),
+        ("modules/x.py", "from potato.__main__ import main\n", START_UP),
+        ("app.py", "import potato.app\n", START_UP),
     ],
 )  # fmt: skip
 def test_each_rule_catches_a_planted_violation(
@@ -331,3 +353,4 @@ def test_allowed_imports_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         test_nothing_listens_for_connections(path)
         test_only_the_calendar_integration_uses_pyobjc(path)
         test_qt_cannot_open_links_start_programs_or_run_scripts(path)
+        test_only_the_entry_point_imports_start_up(path)

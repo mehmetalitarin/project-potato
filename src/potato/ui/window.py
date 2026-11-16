@@ -232,6 +232,11 @@ class PotatoWindow(QMainWindow):
     def _say(self, who: str, text: str) -> None:
         self.transcript.appendPlainText(f"{who}: {displayable(text)}")
 
+    @property
+    def busy(self) -> bool:
+        """Whether a request or an approval is in progress."""
+        return self._busy
+
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         self.entry.setEnabled(not busy)
@@ -296,6 +301,9 @@ class PotatoWindow(QMainWindow):
         self._bridge.turn_finished.emit(result)
 
     def _show_result(self, result: object) -> None:
+        # The reply has just arrived: the idle timer starts from now, so
+        # there is time to read it.
+        self._state.record_activity()
         self._set_busy(False)
         self._show_state(self._state.state)
         if not isinstance(result, TurnResult):
@@ -397,6 +405,7 @@ class PotatoWindow(QMainWindow):
             self._say(POTATO, MESSAGES.get(result.reason, TEXT_ACTION_FAILED))
         else:
             self._say(POTATO, TEXT_ACTION_FAILED)
+        self._state.record_activity()
         self._ask_next()
 
     # --- Closing ------------------------------------------------------------

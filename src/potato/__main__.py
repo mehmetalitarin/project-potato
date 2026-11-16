@@ -2,27 +2,22 @@
 
 Run with ``python -m potato`` or the ``potato`` console script.
 
-At this stage the entry point reports the version and the project status,
-and can check the settings file. It starts no assistant, opens no microphone
-and makes no network connections.
+With no arguments it starts Potato and opens its window. ``--version`` and
+``--check-settings`` report and exit without starting anything.
 """
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from potato import __version__
+from potato.app import run
 from potato.core.config import ConfigError, parse_settings
 from potato.storage.settings_file import (
     SettingsFileError,
     default_settings_path,
     read_settings_file,
-)
-
-STATUS_MESSAGE = (
-    f"Potato {__version__} - project scaffold.\n"
-    "No assistant features are implemented yet. See README.md for the roadmap."
 )
 
 
@@ -35,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="potato",
-        description="Potato: a local-first personal assistant (project scaffold).",
+        description="Potato: a local-first personal assistant. Run without options to start it.",
     )
     parser.add_argument(
         "--version",
@@ -74,20 +69,22 @@ def check_settings(path: Path) -> int:
     return 0
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, start: Callable[[], int] = run) -> int:
     """Run the command-line interface.
 
     Args:
         argv: Arguments to parse. Defaults to ``sys.argv[1:]`` when ``None``.
+        start: Starts Potato and returns when its window closes. Tests
+            replace it.
 
     Returns:
-        The process exit code: ``0`` on success, ``2`` for invalid settings.
+        The process exit code: ``0`` on success, ``2`` for invalid settings,
+        ``3`` if Potato could not start safely.
     """
     arguments = build_parser().parse_args(argv)
     if arguments.check_settings:
         return check_settings(default_settings_path())
-    print(STATUS_MESSAGE)
-    return 0
+    return start()
 
 
 if __name__ == "__main__":

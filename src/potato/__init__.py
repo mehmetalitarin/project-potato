@@ -1,7 +1,7 @@
 """Potato: a local-first personal assistant built security-first.
 
-This package is currently a project scaffold. No assistant features are
-implemented yet; see README.md for the current status and the roadmap.
+``python -m potato`` starts it. ``potato.app`` puts the parts together; see
+README.md for the current status and what is still to come.
 """
 
 __all__ = ["__version__"]

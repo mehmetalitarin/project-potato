@@ -110,11 +110,11 @@ Stable IDs, so that tests and checks can name the rule they enforce.
 | R1 | **One gate.** A tool runs only when `security` hands it a validated call. | Tool functions are reachable only through the gate; tests call them no other way. Random requests are checked against a separate statement of the rules (`tests/test_gate_security.py`). | Partly done |
 | R2 | **The orchestrator cannot reach the tools.** `core` does not import `modules`, and imports `integrations` only for the Ollama client. | An import contract checked in CI (`tests/test_architecture.py`). | Done |
 | R3 | **No shell, and one place for processes.** Nothing uses a shell, `eval` or `exec`. A single module in `integrations` may start a process, with absolute paths and fixed arguments. | Ruff security rules and `tests/test_architecture.py`, both active now. The single module is `potato.integrations.processes`, named in that test. | Done |
-| R4 | **Only the interface creates approvals.** The object that makes approvals is handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package refers to it, and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Partly done |
+| R4 | **Only the interface creates approvals.** The object that makes approvals is made once at start-up, handed to the interface and to nothing else, and `voice` cannot reach it. | A test that fails if code outside the interface package and the start-up module refers to it; a test that reads the start-up module and fails unless the object is used exactly once, as the argument that hands it to the window (`tests/test_app.py`); a rule that no package may import the start-up module; and an import contract that keeps `voice` away from approvals, the interface and the tools (`tests/test_architecture.py`). | Done |
 | R5 | **No listeners.** Potato opens no listening socket. Outbound connections are made only by `integrations`. Qt's own networking, web engine and remote-control modules are never used. | An import contract on networking libraries, Qt's included (`tests/test_architecture.py`), and tests that watch the Ollama client and the market data client for any socket being bound (`tests/test_ollama.py`, `tests/test_market_data.py`). | Done |
 | R6 | **The model never chooses a tool with untrusted data in view.** Two passes, as above. | Tests that plant instructions in tool results, in front of a fake model that obeys everything it reads, and assert that no call follows (`tests/test_turns.py`). | Done |
-| R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | Review, and settings validation that rejects unknown fields. | Partly done |
-| R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. | Partly done |
+| R7 | **Allowlists are code.** The lists of tools, applications and model names, and each tool's risk level, are defined in source, not in settings. | The tools that are switched on are one list in the start-up module; a test pins that list and checks it against the table in [permissions.md](permissions.md) (`tests/test_app.py`). Settings validation rejects unknown fields. | Done |
+| R8 | **Fail closed.** If a check cannot be completed, the answer is no. | Tests that inject errors into each check. At start-up, Potato does not start if its settings are invalid, its audit log cannot be opened safely or fails its integrity check, or another copy is running (`tests/test_app.py`). | Partly done |
 | R9 | **No secrets outside the Keychain.** Not in source, settings, the database or logs. | Secret scanning and log redaction tests, both active now. | Partly done |
 
 The import contracts are tests in `tests/test_architecture.py`. They read
@@ -152,6 +152,30 @@ arrive in M7 and follow these states.
 - **Opening is recorded first.** A change that opens the microphone or loads
   the model is written to the audit log before it happens, and is refused if
   it cannot be. A change that closes things is never blocked by the log.
+
+## Start-up
+
+`python -m potato` calls the start-up module (`src/potato/app.py`), the one
+place where the parts are put together. Only the entry point may import it.
+
+1. The settings are read and validated. Invalid settings stop Potato here.
+2. The audit log is opened and its integrity checked. Opening it is also
+   what refuses a second copy of Potato. If it cannot be opened safely,
+   Potato does not start: it never runs without its audit log.
+3. The approval pair is made. The gate gets the half that checks; the window
+   gets the half that makes approvals. Nothing else keeps it (R4).
+4. The gate is built from the fixed list of tools that are switched on (R7).
+5. The window is shown. Potato starts in Sleeping, and nothing is sent to
+   the model until the user acts.
+
+While Potato runs, a timer sends it back to standby after the idle timeout,
+unless a request or an approval is in progress. Whenever Potato leaves the
+active state (idle timeout, Sleep, an error or quitting), Ollama is asked to
+drop the model from memory. Ollama is also told to drop it by itself after
+the same time, in case Potato is killed.
+
+Closing the window denies anything still waiting for approval, puts Potato
+to sleep, unloads the model and closes the audit log.
 
 ## The interface
 

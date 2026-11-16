@@ -1,19 +1,22 @@
-"""Smoke tests for the project scaffold.
+"""Smoke tests for the package and its command line.
 
 These prove the package installs, imports and reports its version correctly.
-They do not test any assistant feature, because none exists yet.
+Starting Potato itself is tested in test_app.py.
 """
 
 import importlib
+import inspect
 import re
 import runpy
 import sys
 from importlib import metadata, resources
+from pathlib import Path
 
 import pytest
 
 import potato
-from potato.__main__ import STATUS_MESSAGE, main
+import potato.app
+from potato.__main__ import main
 
 SUBPACKAGES = (
     "core",
@@ -58,15 +61,31 @@ def test_version_flag_prints_version_and_exits_cleanly(
     assert capsys.readouterr().out.strip() == f"potato {potato.__version__}"
 
 
-def test_default_run_reports_scaffold_status(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main([])
+def test_no_arguments_starts_potato_and_passes_on_its_exit_code() -> None:
+    started: list[str] = []
 
-    assert exit_code == 0
-    output = capsys.readouterr().out
-    assert STATUS_MESSAGE in output
-    assert "No assistant features are implemented yet" in output
+    def start() -> int:
+        started.append("started")
+        return 7
+
+    assert main([], start=start) == 7
+    assert started == ["started"]
+
+
+def test_by_default_no_arguments_starts_the_real_application() -> None:
+    assert inspect.signature(main).parameters["start"].default is potato.app.run
+
+
+def test_reporting_options_do_not_start_potato(monkeypatch: pytest.MonkeyPatch) -> None:
+    def start() -> int:
+        raise AssertionError("Potato was started")
+
+    with pytest.raises(SystemExit):
+        main(["--version"], start=start)
+    with pytest.raises(SystemExit):
+        main(["--help"], start=start)
+    monkeypatch.setattr("potato.__main__.default_settings_path", lambda: Path("/nonexistent/x"))
+    assert main(["--check-settings"], start=start) == 0
 
 
 def test_unknown_argument_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
@@ -81,7 +100,7 @@ def test_module_entry_point_runs(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr("sys.argv", ["potato"])
+    monkeypatch.setattr("sys.argv", ["potato", "--version"])
     # This file already imported potato.__main__; drop it so runpy executes a
     # fresh copy, exactly as ``python -m potato`` would.
     monkeypatch.delitem(sys.modules, "potato.__main__")
@@ -90,4 +109,4 @@ def test_module_entry_point_runs(
         runpy.run_module("potato", run_name="__main__")
 
     assert excinfo.value.code == 0
-    assert "project scaffold" in capsys.readouterr().out
+    assert capsys.readouterr().out.strip() == f"potato {potato.__version__}"
