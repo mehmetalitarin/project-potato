@@ -110,6 +110,10 @@ _UPSERT_HOLDING: Final = (
     "ON CONFLICT (symbol) DO UPDATE SET "
     "quantity = excluded.quantity, average_price = excluded.average_price"
 )
+_INSERT_NEW_HOLDING: Final = (
+    "INSERT INTO holding (symbol, quantity, average_price) VALUES (?, ?, ?) "
+    "ON CONFLICT (symbol) DO NOTHING"
+)
 _DELETE_HOLDING: Final = "DELETE FROM holding WHERE symbol = ?"
 _SELECT_HOLDINGS: Final = "SELECT symbol, quantity, average_price FROM holding ORDER BY symbol"
 
@@ -291,6 +295,28 @@ class Database:
                 _quantity_to_text(holding.quantity),
                 None if price is None else _quantity_to_text(price),
             ),
+        )
+
+    def add_new_holding(self, holding: Holding) -> bool:
+        """Record a holding only if none is recorded for its symbol yet.
+
+        One statement, so there is no gap between checking and writing.
+
+        Returns:
+            ``True`` if it was recorded, ``False`` if the symbol already had a
+            holding, which is left exactly as it was.
+        """
+        price = holding.average_price
+        return (
+            self._write(
+                _INSERT_NEW_HOLDING,
+                (
+                    holding.symbol,
+                    _quantity_to_text(holding.quantity),
+                    None if price is None else _quantity_to_text(price),
+                ),
+            )
+            > 0
         )
 
     def remove_holding(self, symbol: str) -> bool:

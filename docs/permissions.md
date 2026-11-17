@@ -98,7 +98,7 @@ tool, and a tool that is not in this table must not be in the code.
 | --- | --- | --- | --- |
 | `open_app` | Opens an approved application | One name from a fixed list | Low |
 | `portfolio_summary` | Shows holdings and what they cost; value, profit and loss arrive with market data | None | Low |
-| `portfolio_add_holding` | Records a holding | Symbol (strict pattern), quantity, average price (bounded numbers) | Medium |
+| `portfolio_add_holding` | Records a new holding; never changes one already recorded, because that would destroy data without approval | Symbol (strict pattern), quantity, average price (bounded numbers) | Medium |
 | `portfolio_remove_holding` | Removes a holding, after the user approves it in the dialog | Symbol (strict pattern) | Sensitive |
 | `calendar_upcoming` | Lists upcoming events | Number of days, bounded | Low |
 | `homework_deadlines` | Lists upcoming deadlines | Number of days, bounded | Low |

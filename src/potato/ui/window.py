@@ -406,6 +406,10 @@ class PotatoWindow(QMainWindow):
             self._set_busy(True)
             self._update_orbs()
             self._state.record_activity()
+            # The dialog belongs to the main window. If Potato is in the
+            # floating bubble, bring the window back so the question is seen.
+            if self.bubble.isVisible() or not self.isVisible():
+                self.show_from_bubble()
             dialog.open()
             return
         self._set_busy(False)
