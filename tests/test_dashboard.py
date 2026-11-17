@@ -559,3 +559,8 @@ def test_names_are_made_safe_here_too_whatever_the_tool_sends() -> None:
         assert "\u202e" not in name
         assert "\u200b" not in name
         assert "\u2028" not in name
+
+
+def test_the_dashboard_has_the_mascot(app: QApplication, world: World) -> None:
+    dashboard = SecurityDashboard(world.gate)
+    assert dashboard.mascot.size().width() == 48

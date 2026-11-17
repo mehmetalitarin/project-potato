@@ -61,6 +61,7 @@ from PySide6.QtWidgets import (
 )
 
 from potato.security.gate import MESSAGES, GateResult, RequestOrigin
+from potato.ui.mascot import Mascot
 from potato.ui.text import displayable
 
 TITLE: Final = "Potato: security dashboard"
@@ -584,6 +585,9 @@ class SecurityDashboard(QDialog):
         self.refresh_button.setObjectName("primary")
         self.refresh_button.clicked.connect(self.refresh)
         header = QHBoxLayout()
+        self.mascot = Mascot(48)
+        header.addWidget(self.mascot)
+        header.addSpacing(8)
         titles = QVBoxLayout()
         titles.addWidget(_label("Security", "title"))
         titles.addWidget(_label("What Potato can see about this Mac, read-only.", "subtitle"))
