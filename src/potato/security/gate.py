@@ -54,7 +54,9 @@ _log = logging.getLogger(__name__)
 
 MAX_SUBMISSIONS: Final = 30
 SUBMISSION_PERIOD_SECONDS: Final = 60.0
-MAX_RESULT_CHARACTERS: Final = 16 * 1024
+# Large enough for the full list of programs the dashboard shows. What the
+# model may read is capped much lower, in core/turns.py.
+MAX_RESULT_CHARACTERS: Final = 256 * 1024
 
 
 class RequestOrigin(StrEnum):

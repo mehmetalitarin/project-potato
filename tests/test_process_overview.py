@@ -6,15 +6,18 @@ import random
 import re
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import potato.integrations.processes as processes
+from potato.core.turns import TurnEngine
+from potato.integrations.ollama import Message, Reply, Role
 from potato.integrations.processes import Probe, run_probe
 from potato.modules.process_overview import (
+    MAX_LISTED,
     MEMORY_HIGH_MEGABYTES,
     NOTE,
     PROCESSOR_HIGH_PERCENT,
@@ -393,20 +396,24 @@ def gate(tmp_path: Path) -> Iterator[Gate]:
 
 @pytest.mark.parametrize("origin", list(RequestOrigin))
 def test_every_origin_can_read_the_overview(gate: Gate, origin: RequestOrigin) -> None:
-    result = gate.submit({"tool": "process_overview", "arguments": {}}, origin)
+    result = gate.submit({"tool": "process_overview", "arguments": {"limit": 5}}, origin)
     assert result.ok
     assert result.result is not None
     assert result.result["total"] == 9
 
 
-@pytest.mark.parametrize("arguments", [{"pid": 1}, {"kill": 1}, {"columns": "args"}, {"all": True}])
-def test_the_tool_takes_no_arguments(gate: Gate, arguments: dict[str, object]) -> None:
+@pytest.mark.parametrize(
+    "arguments",
+    [{}, {"pid": 1}, {"limit": 5, "kill": 1}, {"limit": 0}, {"limit": 1001}, {"limit": "5"},
+     {"limit": True}, {"limit": 5.0}, {"columns": "args", "limit": 5}],
+)  # fmt: skip
+def test_the_tool_takes_only_a_limit(gate: Gate, arguments: dict[str, object]) -> None:
     result = gate.submit({"tool": "process_overview", "arguments": arguments}, RequestOrigin.TYPED)
     assert result.reason is ReasonCode.INVALID_ARGUMENTS
 
 
 def test_reading_is_rate_limited(gate: Gate) -> None:
-    proposal = {"tool": "process_overview", "arguments": {}}
+    proposal = {"tool": "process_overview", "arguments": {"limit": 5}}
     results = [gate.submit(proposal, RequestOrigin.TYPED).ok for _ in range(7)]
     assert results == [True] * 5 + [False] * 2
 
@@ -416,13 +423,79 @@ def test_program_names_do_not_reach_the_audit_log(tmp_path: Path) -> None:
     path = tmp_path / "logs" / "audit.jsonl"
     with AuditLog(path, Redactor()) as audit:
         gate = Gate(process_overview_tools(lambda probe: listing, lambda: ME), audit)
-        assert gate.submit({"tool": "process_overview", "arguments": {}}, RequestOrigin.TYPED).ok
+        assert gate.submit(
+            {"tool": "process_overview", "arguments": {"limit": 5}}, RequestOrigin.TYPED
+        ).ok
     assert "SecretProjectApp" not in path.read_text(encoding="utf-8")
 
 
 def test_the_time_limit_covers_the_probe() -> None:
     (tool,) = process_overview_tools()
     assert tool.timeout_seconds >= processes.PROBE_TIMEOUT_SECONDS * 2
+
+
+def _many(count: int) -> str:
+    return "".join(
+        f"{9_000_000 + n} 99.9 {999_999_999 + n} 501 {'W' * 31}{n % 10}\n" for n in range(count)
+    )
+
+
+def test_the_limit_chooses_how_many_are_listed() -> None:
+    listing = _many(40)
+    assert len(overview_with_limit(listing, 3)["top_processor"]) == 3
+    full = overview_with_limit(listing, 1000)
+    assert len(full["top_processor"]) == 40
+    assert len(full["top_memory"]) == TOP_COUNT
+    assert full["total"] == 40
+
+
+def overview_with_limit(listing: str, limit: int) -> Any:
+    return read_overview(lambda probe: listing, lambda: ME, limit)
+
+
+def test_the_largest_full_list_fits_through_the_gate(tmp_path: Path) -> None:
+    listing = _many(MAX_LISTED + 300)
+    with AuditLog(tmp_path / "logs" / "audit.jsonl", Redactor()) as audit:
+        gate = Gate(process_overview_tools(lambda probe: listing, lambda: ME), audit)
+        result = gate.submit(
+            {"tool": "process_overview", "arguments": {"limit": MAX_LISTED}},
+            RequestOrigin.INTERFACE,
+        )
+    assert result.ok, result
+    data: Any = result.result
+    assert data["total"] == MAX_LISTED + 300
+    assert len(data["top_processor"]) == MAX_LISTED
+
+
+def test_a_full_list_never_reaches_the_model(tmp_path: Path) -> None:
+    # If the model asks for everything, the answer is too long for it and is
+    # replaced by a fixed note before the model reads it.
+    listing = _many(200)
+    with AuditLog(tmp_path / "logs" / "audit.jsonl", Redactor()) as audit:
+        gate = Gate(process_overview_tools(lambda probe: listing, lambda: ME), audit)
+        model = Recorder(
+            Reply("", ({"tool": "process_overview", "arguments": {"limit": MAX_LISTED}},)),
+            Reply("Lots running.", ()),
+        )
+        TurnEngine(model, gate).run("list every program", RequestOrigin.TYPED)
+    pass_two = model.calls[1]
+    tool_messages = [m.content for m in pass_two if m.role is Role.TOOL]
+    assert tool_messages == [
+        json.dumps({"tool": "process_overview", "status": "ok", "result": "too long to summarise"})
+    ]
+    assert "WWWW" not in json.dumps([m.content for m in pass_two])
+
+
+class Recorder:
+    def __init__(self, *replies: Reply) -> None:
+        self.replies = list(replies)
+        self.calls: list[list[Message]] = []
+
+    def chat(
+        self, messages: Sequence[Message], tools: Sequence[Mapping[str, object]] = ()
+    ) -> Reply:
+        self.calls.append(list(messages))
+        return self.replies.pop(0)
 
 
 # --- The real ps -------------------------------------------------------------
@@ -482,3 +555,9 @@ def test_the_tool_is_in_the_documented_table_with_the_same_risk() -> None:
     rows = dict(re.findall(r"^\| `([a-z_]+)` \|.*\| (Low|Medium|Sensitive) \|$", section, re.M))
     for tool in process_overview_tools():
         assert rows.get(tool.name, "").lower() == tool.risk.value
+
+
+@pytest.mark.parametrize(("limit", "listed"), [(0, 1), (-5, 1), (10**9, MAX_LISTED)])
+def test_the_limit_is_kept_in_range_even_when_called_directly(limit: int, listed: int) -> None:
+    result: Any = read_overview(lambda probe: _many(MAX_LISTED + 5), lambda: ME, limit)
+    assert len(result["top_processor"]) == listed
