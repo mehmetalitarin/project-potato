@@ -3,8 +3,8 @@
 Potato never downloads the model itself. The user runs
 ``scripts/download_speech_model.py`` once, which fetches a pinned version.
 Before the model is first used, this module checks that its folder holds the
-expected files and that ``model.bin`` has the expected SHA-256, so a model
-that was swapped or damaged is refused. The Hugging Face library is put in
+expected files and that each has the expected SHA-256, so a model that was
+swapped or damaged is refused. The Hugging Face library is put in
 offline mode before faster-whisper is imported, so it cannot reach the
 network either.
 
@@ -16,6 +16,7 @@ requests reach low-risk tools only (P6).
 import hashlib
 import os
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -23,8 +24,17 @@ from potato.voice.microphone import BYTES_PER_SAMPLE
 
 MODEL_REPOSITORY: Final = "Systran/faster-whisper-small.en"
 MODEL_REVISION: Final = "d1d751a5f8271d482d14ca55d9e2deeebbae577f"
-MODEL_FILES: Final = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 MODEL_SHA256: Final = "62b2a45b05ee59acb4a5341b33ee35e041395d378d418a18acfe4c9e768ee37a"
+# Every file of the model, with its SHA-256 at the pinned revision.
+MODEL_FILE_SHA256: Final = {
+    "config.json": "666a9605530ac1f61fa8177f3702b4dacec9966749e42610839fcc32661d5fae",
+    "model.bin": MODEL_SHA256,
+    # A public checksum, not a secret: Gitleaks mistakes "token" in the name
+    # next to a long hex string for an API key.
+    "tokenizer.json": "929c5252409436dce1b38a75d1abbcb5e132d170d8e324e4e04ed915fa2d22df",  # gitleaks:allow  # noqa: E501
+    "vocabulary.txt": "ff77588746d3a2595d32ab5b69ffd7b95ce2441ac57533cb66fc3eb575a115cf",
+}
+MODEL_FILES: Final = tuple(MODEL_FILE_SHA256)
 MODEL_FOLDER_NAME: Final = "faster-whisper-small.en"
 
 MAX_TRANSCRIPT_CHARACTERS: Final = 2000
@@ -49,13 +59,20 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def check_model_folder(folder: Path, expected_sha256: str = MODEL_SHA256) -> None:
+def check_model_folder(
+    folder: Path,
+    expected_sha256: str = MODEL_SHA256,
+    expected_files: Mapping[str, str] | None = None,
+) -> None:
     """Check that ``folder`` holds the pinned model.
+
+    ``expected_sha256`` is for ``model.bin``; ``expected_files`` gives the
+    other files' checksums (by default, the pinned ones).
 
     Raises:
         SpeechModelMissingError: There is no model folder.
         SpeechModelInvalidError: A file is missing, is not a plain file, or
-            ``model.bin`` does not match its checksum.
+            does not match its checksum.
     """
     if not folder.is_dir():
         raise SpeechModelMissingError("the speech model has not been downloaded")
@@ -63,24 +80,34 @@ def check_model_folder(folder: Path, expected_sha256: str = MODEL_SHA256) -> Non
         path = folder / name
         if path.is_symlink() or not path.is_file():
             raise SpeechModelInvalidError("the speech model folder is incomplete")
-    if file_sha256(folder / "model.bin") != expected_sha256:
-        raise SpeechModelInvalidError("the speech model does not match its checksum")
+    checksums = dict(MODEL_FILE_SHA256 if expected_files is None else expected_files)
+    checksums["model.bin"] = expected_sha256
+    for name in MODEL_FILES:
+        if file_sha256(folder / name) != checksums.get(name):
+            raise SpeechModelInvalidError("the speech model does not match its checksum")
 
 
 class WhisperTranscriber:
     """Turns 16 kHz, 16-bit mono audio into text."""
 
-    def __init__(self, folder: Path, *, expected_sha256: str = MODEL_SHA256) -> None:
+    def __init__(
+        self,
+        folder: Path,
+        *,
+        expected_sha256: str = MODEL_SHA256,
+        expected_files: Mapping[str, str] | None = None,
+    ) -> None:
         """Remember where the model is. Loads nothing yet."""
         self._folder = folder
         self._expected = expected_sha256
+        self._expected_files = expected_files
         self._model: object | None = None
         self._lock = threading.Lock()
 
     def _load(self) -> object:
         with self._lock:
             if self._model is None:
-                check_model_folder(self._folder, self._expected)
+                check_model_folder(self._folder, self._expected, self._expected_files)
                 # Before the import: the Hugging Face library reads these once.
                 os.environ["HF_HUB_OFFLINE"] = "1"
                 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
