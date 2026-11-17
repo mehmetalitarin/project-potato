@@ -13,12 +13,43 @@ model can only suggest actions, never do them itself.** Every action it
 suggests has to get past a separate permission manager (I call it "the
 gate") that the model can't talk its way around.
 
-## Where it's at
+<p align="center">
+  <img src="docs/images/window.png" alt="Potato's window: the orb, the sleeping potato mascot and the chat" width="420">
+  <img src="docs/images/approval.png" alt="An approval dialog: Potato asks before removing a portfolio holding" width="420">
+</p>
 
-**Pre-alpha.** You can start Potato and type to it: it answers using the
-local model and can use its tools. You can type or hold "Hold to talk" and
-speak, and it can read its replies aloud. Speech is turned into text on the
-Mac itself. Everything that's there is tested.
+## What it does
+
+Version 1.0 works end to end on my Mac.
+
+- **Talk or type.** Hold "Hold to talk" and speak, or type. Speech is turned
+  into text on the Mac (Whisper), and Potato can read its replies aloud with
+  the Mac's own voice.
+- **Asks before anything risky.** When I typed "delete everything", the model
+  tried to remove a holding called `ALL`. The gate stopped it and showed me
+  the exact action instead (picture above). Nothing happens unless I click
+  Approve, and voice can never approve or reach a risky tool.
+- **Security dashboard.** FileVault, firewall, Gatekeeper and SIP at a
+  glance, plus every running program and network listener, read-only.
+- **Everyday tools.** Calendar and homework deadlines, a stock portfolio
+  tracker (no trading), opening apps, and a phishing link checker that reads
+  a link as text without ever opening it.
+- **Sleeps properly.** Asleep, nothing is listening and the model is
+  unloaded from memory. The orb always shows what Potato is doing, and can
+  float above other apps.
+
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="The security dashboard: protections, programs and network" width="560">
+  <img src="docs/images/bubble.png" alt="The orb floating above other apps" width="160">
+</p>
+
+Things I'm deliberately **not** building: email, messaging, calls, touching
+personal files, running shell commands, admin commands, remote control, any
+public API or any cloud AI.
+
+### Everything in 1.0
+
+Each part is built and tested. I only mark something as done once it is.
 
 | Part | State |
 | --- | --- |
@@ -32,44 +63,23 @@ Mac itself. Everything that's there is tested.
 | Attack tests for the gate, and import rules checked in CI | Done |
 | Local model client (Ollama, this Mac only) | Done |
 | Conversations in two passes, so outside text can't trigger a tool | Done |
+| Conversation memory, without letting outside text choose a tool | Done |
 | Portfolio tools (typed only, not by voice) | Done |
 | Phishing link checker (reads the link as text, never opens it) | Done |
 | App launcher (Apple's own apps only, checked before opening) | Done |
 | Calendar and homework deadlines from Apple Calendar, read-only | Done |
-| Security posture: FileVault, firewall, Gatekeeper, SIP | Done |
-| Process overview (never reads command lines) | Done |
-| Network overview (never shows remote addresses) | Done |
-| Security update check (lists only, never installs) | Done |
-| Desktop window: typed chat and Potato's state, plain text only | Done |
-| Approval dialog: shows the exact action, Deny by default, real clicks only | Done |
-| Starting Potato as an app: `python -m potato` opens the window, connected to the model and tools | Done |
+| Security posture, process overview, network overview, update check | Done |
+| Desktop window, approval dialog and security dashboard, plain text only | Done |
+| The orb and a potato mascot, both drawn in code | Done |
 | Model unloaded from memory when idle | Done |
-| Conversation memory, without letting outside text choose a tool | Done |
-| The orb: an animated status indicator, in the window or floating above other apps, with smooth changes | Done |
-| A potato mascot, drawn in code, in the window, the dashboard and the app icon | Done |
-| Security dashboard: protections, programs, network and updates on one screen, with "Show all" | Done |
-| Reading replies aloud with the Mac's own voice (off until you turn it on; private results are shown, not spoken) | Done |
-| Voice input: push-to-talk and speech-to-text on the Mac (Whisper) | Done |
-| Wake word ("Potato") | Maybe later |
-| Dependency scan | Not started |
-| Live stock prices (needs a Finnhub key) | Set aside |
+| Push-to-talk and speech-to-text on the Mac (Whisper, pinned and checksummed) | Done |
+| Reading replies aloud (private results are shown, not spoken) | Done |
 
-I only mark something as done once it's built and tested.
+### Maybe later
 
-## What it'll do (version 1.0)
-
-- Wake on "Potato", with speech handled locally
-- Go to sleep when idle and unload the model from memory
-- Track a stock portfolio (no trading, no brokerage logins)
-- Read my calendar and summarise homework deadlines
-- Open apps from a fixed list
-- Security tools: posture check, process and network overviews, update
-  check, dependency scanning, phishing link analysis
-- A security dashboard and audit log
-
-Things I'm deliberately **not** building: email, messaging, calls, touching
-personal files, running shell commands, admin commands, remote control, any
-public API or any cloud AI.
+- Starting at login with a menu bar icon, and a keyboard shortcut to talk
+- A wake word ("Potato")
+- Dependency scanning, and live stock prices (needs a Finnhub key)
 
 ## How I'm trying to keep it safe
 

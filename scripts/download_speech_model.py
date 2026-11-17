@@ -3,8 +3,8 @@
     python scripts/download_speech_model.py
 
 It fetches a pinned version of Whisper small.en (about 490 MB) from Hugging
-Face over verified HTTPS, checks the SHA-256 of the model file against the
-value pinned in Potato's code, and only then moves the folder into place.
+Face over verified HTTPS, checks every file's SHA-256 against the values
+pinned in Potato's code, and only then moves the folder into place.
 Nothing half-downloaded is ever left where Potato looks.
 """
 
@@ -18,10 +18,10 @@ from pathlib import Path
 
 from potato.app import default_speech_model_folder
 from potato.voice.transcriber import (
+    MODEL_FILE_SHA256,
     MODEL_FILES,
     MODEL_REPOSITORY,
     MODEL_REVISION,
-    MODEL_SHA256,
     check_model_folder,
 )
 
@@ -83,9 +83,10 @@ def main() -> int:
         folder.mkdir()
         print(f"Downloading {MODEL_REPOSITORY} at {MODEL_REVISION[:7]}...")
         hashes = {name: _download(name, folder / name, context) for name in MODEL_FILES}
-        if hashes["model.bin"] != MODEL_SHA256:
-            print("Refused: model.bin does not match the checksum pinned in Potato.")
-            return 1
+        for name, value in hashes.items():
+            if value != MODEL_FILE_SHA256[name]:
+                print(f"Refused: {name} does not match the checksum pinned in Potato.")
+                return 1
         check_model_folder(folder)
         if destination.exists():
             shutil.rmtree(destination)

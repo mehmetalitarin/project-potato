@@ -151,7 +151,7 @@ action, so it may wake Potato, like typing. Leaving Active for any reason
 closes the microphone and throws away what was recorded; if it cannot be
 closed, Potato moves to Error. Recordings are capped at 30 seconds and kept
 in memory only. Speech-to-text (Whisper small.en through faster-whisper)
-runs on the Mac, loads only a model folder whose `model.bin` matches a
+runs on the Mac, loads only a model folder whose files all match their
 pinned SHA-256, and runs with the Hugging Face library in offline mode.
 What was heard is shown as plain text and sent as `voice`, which reaches
 low-risk tools only (P6). The table below still describes a wake word, which
