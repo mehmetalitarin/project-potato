@@ -115,6 +115,22 @@ class ActionGate(Protocol):
         ...
 
 
+class Voice(Protocol):
+    """The part of the speaker the window needs."""
+
+    def reply(self, result: object) -> bool:
+        """Read out a turn's result, if Potato is active."""
+        ...
+
+    def stop(self) -> None:
+        """Stop speaking."""
+        ...
+
+    def on_speaking(self, listener: Callable[[bool], None]) -> None:
+        """Be told when speaking starts and stops, from any thread."""
+        ...
+
+
 class _Bridge(QObject):
     """Carries results from other threads to the window, safely.
 
@@ -125,6 +141,7 @@ class _Bridge(QObject):
     turn_finished = Signal(object)
     action_finished = Signal(object)
     state_changed = Signal(object)
+    speaking_changed = Signal(object)
 
 
 Starter = Callable[[Callable[[], None]], None]
@@ -148,6 +165,7 @@ class PotatoWindow(QMainWindow):
         start: Starter = _start_thread,
         approve_delay_ms: int = APPROVE_DELAY_MS,
         approval_timeout_ms: int = DIALOG_TIMEOUT_MS,
+        voice: Voice | None = None,
     ) -> None:
         """Build the window. Nothing runs until the user acts.
 
@@ -164,6 +182,7 @@ class PotatoWindow(QMainWindow):
             approve_delay_ms: How long Approve stays disabled after the
                 dialog appears. Tests shorten it.
             approval_timeout_ms: How long the dialog waits before it denies.
+            voice: Reads replies aloud when the user turns on "Read aloud".
         """
         super().__init__()
         self._conversation = conversation
@@ -175,6 +194,8 @@ class PotatoWindow(QMainWindow):
         self._approve_delay_ms = approve_delay_ms
         self._approval_timeout_ms = approval_timeout_ms
         self._busy = False
+        self._speaking = False
+        self._voice = voice
         # Actions waiting to be asked about, each with the proposal to hand
         # back to the gate, and the one being asked about now.
         self._waiting: list[tuple[object, object]] = []
@@ -183,6 +204,9 @@ class PotatoWindow(QMainWindow):
         self._bridge.turn_finished.connect(self._show_result)
         self._bridge.action_finished.connect(self._show_action_result)
         self._bridge.state_changed.connect(self._show_state)
+        self._bridge.speaking_changed.connect(self._show_speaking)
+        if voice is not None:
+            voice.on_speaking(self._bridge.speaking_changed.emit)
 
         self.setWindowTitle(TITLE)
         self.orb = Orb()
@@ -195,6 +219,11 @@ class PotatoWindow(QMainWindow):
         self.security_button = QPushButton("Security")
         self.security_button.setEnabled(gate is not None)
         self.security_button.clicked.connect(self.show_dashboard)
+        # Off until the user turns it on.
+        self.speak_button = QPushButton("Read aloud")
+        self.speak_button.setCheckable(True)
+        self.speak_button.setEnabled(voice is not None)
+        self.speak_button.toggled.connect(self._speak_toggled)
         self.dashboard: SecurityDashboard | None = None
         self.wake_button.clicked.connect(self._wake)
         self.sleep_button.clicked.connect(self._sleep)
@@ -234,6 +263,7 @@ class PotatoWindow(QMainWindow):
         top.addWidget(self.wake_button)
         top.addWidget(self.sleep_button)
         top.addWidget(self.mini_button)
+        top.addWidget(self.speak_button)
         top.addWidget(self.security_button)
         bottom = QHBoxLayout()
         bottom.addWidget(self.entry, 1)
@@ -282,7 +312,7 @@ class PotatoWindow(QMainWindow):
         # Thinking shows only while a request is with the model, not while an
         # approval dialog waits for the user.
         thinking = self._busy and self._asking is None
-        mode = mode_for(self._state.state, busy=thinking)
+        mode = mode_for(self._state.state, busy=thinking, speaking=self._speaking)
         self.orb.set_mode(mode)
         self.bubble.orb.set_mode(mode)
 
@@ -297,6 +327,16 @@ class PotatoWindow(QMainWindow):
         self.dashboard.show()
         self.dashboard.raise_()
         self.dashboard.refresh()
+
+    # --- Speaking -----------------------------------------------------------
+
+    def _speak_toggled(self, on: bool) -> None:
+        if not on and self._voice is not None:
+            self._voice.stop()
+
+    def _show_speaking(self, speaking: object) -> None:
+        self._speaking = speaking is True
+        self._update_orbs()
 
     # --- The floating bubble ------------------------------------------------
 
@@ -393,6 +433,8 @@ class PotatoWindow(QMainWindow):
             self._say(POTATO, TEXT_NEEDS_APPROVAL)
         if result.text or result.status is not TurnStatus.ANSWERED:
             self._say(POTATO, result.text or TEXT_TURN_FAILED)
+        if self._voice is not None and self.speak_button.isChecked():
+            self._voice.reply(result)
         if pending and can_approve:
             self._waiting.extend(pending)
             self._ask_next()
@@ -492,6 +534,8 @@ class PotatoWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt's name
         """Deny anything still waiting, then put Potato to sleep."""
         self.bubble.close()
+        if self._voice is not None:
+            self._voice.stop()
         if self.dashboard is not None:
             self.dashboard.close()
         for request, _ in self._waiting:

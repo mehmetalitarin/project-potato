@@ -331,10 +331,11 @@ def _subprocess_calls() -> list[ast.Call]:
     ]
 
 
-def test_there_are_exactly_two_places_that_start_a_program() -> None:
+def test_there_are_exactly_three_places_that_start_a_program() -> None:
     names = sorted(call.func.attr for call in _subprocess_calls())  # type: ignore[attr-defined]
-    assert names == ["Popen", "run"]
+    assert names == ["Popen", "Popen", "run"]
     assert processes.OPEN_PROGRAM == "/usr/bin/open"
+    assert processes.SAY_COMMAND == ("/usr/bin/say", "-f", "-")
 
 
 def test_neither_place_uses_a_shell_or_inherits_the_environment() -> None:
@@ -344,7 +345,10 @@ def test_neither_place_uses_a_shell_or_inherits_the_environment() -> None:
         assert "executable" not in keywords
         assert isinstance(keywords["env"], ast.Name)
         assert keywords["env"].id == "_ENVIRONMENT"
-        assert ast.unparse(keywords["stdin"]) == "subprocess.DEVNULL"
+        # Only "say" gets input: the text to speak, never as an argument.
+        speaks = ast.unparse(call.args[0]) == "list(SAY_COMMAND)"
+        expected_input = "subprocess.PIPE" if speaks else "subprocess.DEVNULL"
+        assert ast.unparse(keywords["stdin"]) == expected_input
         assert ast.unparse(keywords["stderr"]) in (
             "subprocess.DEVNULL",
             "subprocess.STDOUT if read_errors else subprocess.DEVNULL",
@@ -368,9 +372,132 @@ def test_only_these_modules_use_the_runner() -> None:
         or "integrations import processes" in path.read_text(encoding="utf-8")
     )
     assert users == [
+        "app.py",
         "modules/launcher.py",
         "modules/network_overview.py",
         "modules/process_overview.py",
         "modules/security_posture.py",
         "modules/security_updates.py",
     ]
+
+
+def test_the_app_takes_only_the_voice_from_processes() -> None:
+    source = (SOURCE_TREE / "app.py").read_text(encoding="utf-8")
+    lines = [line for line in source.splitlines() if "potato.integrations.processes" in line]
+    assert lines == ["from potato.integrations.processes import start_speaking"]
+
+
+# --- Speaking ----------------------------------------------------------------
+
+# A stand-in for "say": writes what it was given as arguments and as input to
+# a file, then waits as long as it is told to.
+FAKE_SAY = """
+import json, sys, time
+words = sys.stdin.read()
+with open(sys.argv[1], "w", encoding="utf-8") as out:
+    json.dump({"arguments": sys.argv[2:], "input": words}, out)
+time.sleep(float(sys.argv[2]))
+"""
+
+
+@pytest.fixture
+def fake_say(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    script = tmp_path / "say.py"
+    script.write_text(FAKE_SAY, encoding="utf-8")
+    record = tmp_path / "said.json"
+    monkeypatch.setattr(
+        processes, "SAY_COMMAND", (sys.executable, "-I", str(script), str(record), "0")
+    )
+    return record
+
+
+def _read(record: Path) -> dict[str, Any]:
+    import json
+
+    for _ in range(200):
+        if record.exists() and record.stat().st_size:
+            return dict(json.loads(record.read_text(encoding="utf-8")))
+        time.sleep(0.02)
+    raise AssertionError("the stand-in never ran")
+
+
+@pytest.mark.parametrize(
+    ("text", "spoken"),
+    [
+        ("Hello there.", "Hello there."),
+        ("  lots \n of\t\tspace  ", "lots of space"),
+        ("[[volm 0]]quiet", "volm 0 quiet"),
+        ("[[inpt PHON]]", "inpt PHON"),
+        ("line\u2028break\u2029para", "line break para"),
+        ("a\u202eb\u200bc\x1bd\x00e", "a b c d e"),
+        ("G\u00fczel, te\u015fekk\u00fcrler", "G\u00fczel, te\u015fekk\u00fcrler"),
+        ("", ""),
+        ("\n\t ", ""),
+        (None, ""),
+        (5, ""),
+        (b"bytes", ""),
+    ],
+)
+def test_speakable_keeps_plain_words_only(text: object, spoken: str) -> None:
+    assert processes.speakable(text) == spoken
+
+
+def test_speakable_caps_the_length_at_a_word() -> None:
+    words = processes.speakable("word " * 1000)
+    assert len(words) <= processes.MAX_SPOKEN_CHARACTERS
+    assert words.endswith("word")
+    unbroken = processes.speakable("x" * 5000)
+    assert len(unbroken) == processes.MAX_SPOKEN_CHARACTERS
+
+
+def test_the_text_goes_in_on_input_never_as_an_argument(fake_say: Path) -> None:
+    speech = processes.start_speaking("-v Zarvox [[volm 0]] hello\nthere")
+    assert speech is not None
+    assert speech.wait(10)
+    said = _read(fake_say)
+    assert said["input"] == "-v Zarvox volm 0 hello there"
+    assert said["arguments"] == ["0"]
+
+
+def test_nothing_to_say_starts_nothing(fake_say: Path) -> None:
+    assert processes.start_speaking(" [[ ]] ") is None
+    assert processes.start_speaking(None) is None
+    assert not fake_say.exists()
+
+
+def test_speech_can_be_stopped(
+    tmp_path: Path, fake_say: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    command = (*processes.SAY_COMMAND[:-1], "60")
+    monkeypatch.setattr(processes, "SAY_COMMAND", command)
+    speech = processes.start_speaking("a long story")
+    assert speech is not None
+    _read(fake_say)
+    assert not speech.wait(0.1)
+    started = time.monotonic()
+    speech.stop()
+    speech.stop()  # Twice is fine.
+    assert speech.wait(0)
+    assert time.monotonic() - started < 5
+
+
+def test_a_missing_say_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(processes, "SAY_COMMAND", ("/nonexistent/say", "-f", "-"))
+    assert processes.start_speaking("hello") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "spoken"),
+    [
+        ("Done! \U0001f954\U0001f389", "Done!"),
+        ("Hi \U0001f44b\U0001f3fd there", "Hi there"),
+        ("\U0001f468\u200d\U0001f4bb coder", "coder"),
+        ("\u2764\ufe0f love", "love"),
+        ("press 1\ufe0f\u20e3", "press 1"),
+        ("UK \U0001f1ec\U0001f1e7", "UK"),
+        ("It's 20\u00b0 outside", "It's 20\u00b0 outside"),
+        ("5 + 3 = 8, 50% off, $4, \u00a39", "5 + 3 = 8, 50% off, $4, \u00a39"),
+    ],
+)
+def test_emojis_are_not_read_out(text: str, spoken: str) -> None:
+    assert processes.speakable(text) == spoken

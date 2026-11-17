@@ -3,5 +3,5 @@
 Boundary: voice is an input and output channel only. It can never approve a
 sensitive action.
 
-No code yet.
+Text-to-speech is in ``speaker``. The microphone comes next.
 """

@@ -164,6 +164,13 @@ arrive in M7 and follow these states.
 - **Potato starts in Sleeping.** Nothing listens until the interface wakes it.
 - **Voice only reduces.** Voice can turn the wake word into a conversation
   (Standby to Active) and can put Potato to sleep. Nothing else.
+- **Speaking needs Active.** Replies are read aloud only while active, and
+  only once the user turns on "Read aloud". Leaving the active state for any
+  reason stops the voice at once; if it cannot be stopped, Potato moves to
+  Error. The voice is macOS's own `say`, started from the one module that
+  may start programs (R3), with the text cleaned, capped at 600 characters
+  and sent on its input, never as an argument. A reply is cut off after 45
+  seconds.
 - **Opening is recorded first.** A change that opens the microphone or loads
   the model is written to the audit log before it happens, and is refused if
   it cannot be. A change that closes things is never blocked by the log.
