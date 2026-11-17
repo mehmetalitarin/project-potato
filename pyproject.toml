@@ -33,6 +33,13 @@ dependencies = [
     # window. The "Essentials" package leaves out the web browser engine and
     # other large add-ons that Potato must not use anyway.
     "PySide6-Essentials>=6.10",
+    # Speech-to-text on this Mac, with no cloud service: Whisper running on
+    # CTranslate2. Potato only ever loads a model folder the user downloaded
+    # and whose checksum matches; it never downloads anything itself.
+    "faster-whisper>=1.2",
+    # The microphone, through PortAudio. Opened only while "Hold to talk" is
+    # held down and Potato is active.
+    "sounddevice>=0.5",
 ]
 
 [project.optional-dependencies]
@@ -87,6 +94,8 @@ convention = "google"
 "tests/**" = ["S101", "D"]
 # The command-line entry point is the one place allowed to print.
 "src/potato/__main__.py" = ["T20"]
+# One-time set-up scripts the user runs by hand, which report progress.
+"scripts/**" = ["T20"]
 # The link analyser lists lookalike letters on purpose: recognising them is its job.
 "src/potato/modules/link_analysis.py" = ["RUF001"]
 "tests/test_link_analysis.py" = ["S101", "D", "RUF001"]
@@ -97,13 +106,13 @@ convention = "google"
 python_version = "3.12"
 strict = true
 warn_unreachable = true
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 
 # PyObjC ships no type information, and is not installed on Linux at all.
 # Only potato.integrations.calendar may import it (tests/test_architecture.py),
 # and it treats everything from it as untyped.
 [[tool.mypy.overrides]]
-module = ["EventKit", "Foundation"]
+module = ["EventKit", "Foundation", "faster_whisper", "sounddevice"]
 ignore_missing_imports = true
 
 # --- pytest -----------------------------------------------------------------

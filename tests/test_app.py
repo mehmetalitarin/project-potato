@@ -48,7 +48,7 @@ from potato.security.audit import AUDIT_FILE_NAME, AuditLog, verify_audit_chain
 from potato.security.gate import Gate, RequestOrigin
 from potato.security.redaction import Redactor
 from potato.security.tools import ArgumentValue, ChoiceField, RiskLevel, ToolDefinition
-from potato.storage.database import Database, Holding
+from potato.storage.database import Database, Holding, default_database_path
 from potato.ui.approval import ApprovalDialog
 from potato.ui.window import POTATO, TEXT_DONE, YOU
 
@@ -88,6 +88,10 @@ class Script:
         self.calls: dict[str, dict[str, Any]] = {
             "check": {"name": "analyse_link", "arguments": {"link": "https://example.com/a"}},
             "wipe": {"name": "wipe", "arguments": {"target": "cache"}},
+            "record": {
+                "name": "portfolio_add_holding",
+                "arguments": {"symbol": "AAPL", "quantity": 1, "average_price": 100},
+            },
         }
 
     def __call__(
@@ -897,3 +901,109 @@ def test_wake_event_is_not_sent_at_start_up(potato: Application, locations: Loca
     # Potato starts asleep. Only the user's own action wakes it.
     assert [r["event"] for r in records(locations)] == []
     assert Event.INTERFACE_WAKE.value not in json.dumps(records(locations))
+
+
+# --- Speaking to Potato, through everything ----------------------------------
+
+
+class FakeMicrophone:
+    """Stands in for the Mac's microphone; everything else is real."""
+
+    def __init__(self) -> None:
+        self.is_open = False
+
+    def open(self, on_level: Callable[[float], None]) -> None:
+        self.is_open = True
+        on_level(0.5)
+
+    def close(self) -> bytes:
+        was_open, self.is_open = self.is_open, False
+        return b"\x01\x00" * 16_000 if was_open else b""
+
+
+def fake_ears(application: Application, words: str) -> FakeMicrophone:
+    microphone = FakeMicrophone()
+    ears = application.window._ears
+    assert ears is not None
+    ears._microphone = microphone  # type: ignore[attr-defined]
+    ears._transcriber = lambda audio: words  # type: ignore[attr-defined]
+    # Nothing is read aloud in the tests.
+    application.window._voice = None
+    return microphone
+
+
+def talk(qt: QApplication, application: Application, words: str) -> None:
+    fake_ears(application, words)
+    before = len(lines(application))
+    application.window.start_talking()
+    application.window.stop_talking()
+    wait_for(qt, lambda: len(lines(application)) >= before + 2 and not _thinking(application))
+
+
+def executed(locations: Locations) -> list[tuple[str, str]]:
+    return [
+        (r["data"]["tool"], r["data"]["origin"])
+        for r in records(locations)
+        if r["event"] == "tool_executed"
+    ]
+
+
+def test_the_app_has_push_to_talk(potato: Application) -> None:
+    assert potato.window.talk_button.isEnabled()
+    assert not potato.window.listening
+
+
+def test_a_spoken_request_can_use_a_low_risk_tool(
+    qt: QApplication, potato: Application, locations: Locations
+) -> None:
+    talk(qt, potato, "check this link")
+    assert lines(potato)[0] == "You (spoken): check this link"
+    assert executed(locations) == [("analyse_link", "voice")]
+
+
+def test_a_spoken_request_cannot_change_the_portfolio(
+    qt: QApplication, potato: Application, locations: Locations
+) -> None:
+    talk(qt, potato, "record one apple share")
+    assert executed(locations) == []
+    with Database(locations.database) as database:
+        assert database.holdings() == []
+    # The same words typed do change it: the refusal is because of voice.
+    say(qt, potato, "record one apple share")
+    assert executed(locations) == [("portfolio_add_holding", "typed")]
+
+
+def test_a_spoken_request_cannot_reach_a_sensitive_tool(
+    qt: QApplication,
+    with_wipe: Application,
+    locations: Locations,
+    wiped: list[dict[str, ArgumentValue]],
+) -> None:
+    talk(qt, with_wipe, "wipe the cache")
+    assert not with_wipe.window.findChildren(ApprovalDialog)
+    assert wiped == []
+    assert executed(locations) == []
+
+
+def test_the_microphone_closes_when_potato_sleeps(potato: Application) -> None:
+    microphone = fake_ears(potato, "hello")
+    potato.window.start_talking()
+    opened = [microphone.is_open]
+    potato.state.handle(Event.INTERFACE_SLEEP)
+    opened.append(microphone.is_open)
+    assert opened == [True, False]
+    potato.window.stop_talking()
+    assert potato.state.state is AssistantState.SLEEPING
+
+
+def test_the_microphone_closes_on_an_error(potato: Application) -> None:
+    microphone = fake_ears(potato, "hello")
+    potato.window.start_talking()
+    potato.state.fail()
+    assert not microphone.is_open
+
+
+def test_the_speech_model_lives_next_to_the_database() -> None:
+    folder = app_module.default_speech_model_folder()
+    assert folder.parent.parent == default_database_path().parent
+    assert folder.name == "faster-whisper-small.en"

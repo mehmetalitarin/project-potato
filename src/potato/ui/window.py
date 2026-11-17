@@ -30,11 +30,12 @@ Sensitive actions (``potato.ui.approval`` has the dialog's own guarantees):
   is reported and not run.
 """
 
+import contextlib
 import threading
 from collections.abc import Callable, Mapping
 from typing import Final, Protocol
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -65,6 +66,8 @@ from potato.ui.text import displayable
 
 TITLE: Final = "Potato"
 MAX_TRANSCRIPT_LINES: Final = 2000
+# Matches the microphone's own cap (30 seconds of audio).
+MAX_TALK_MS: Final = 30_000
 
 STATE_TEXT: Final = {
     AssistantState.SLEEPING: "Sleeping: not listening, model not loaded.",
@@ -92,8 +95,20 @@ TEXT_ACTION_FAILED: Final = "Something went wrong with that action."
 
 # How this window's requests arrive. Used for the turn and again when an
 # approved action goes back to the gate: approving never changes the origin.
+TEXT_LISTENING: Final = "Listening... let go to send."
+TEXT_TRANSCRIBING: Final = "Working out what you said..."
+TEXT_HEARD_NOTHING: Final = "I didn't catch anything. Hold the button while you talk."
+TEXT_NOT_UNDERSTOOD: Final = (
+    "I couldn't turn that into text. If this is the first time, the speech model may "
+    "not be installed yet: see the README."
+)
+TEXT_MIC_FAILED: Final = (
+    "The microphone could not be opened. Check System Settings, Privacy & Security, Microphone."
+)
+
 ORIGIN: Final = RequestOrigin.TYPED
 YOU: Final = "You"
+YOU_SPOKEN: Final = "You (spoken)"
 POTATO: Final = "Potato"
 
 
@@ -131,6 +146,30 @@ class Voice(Protocol):
         ...
 
 
+class Ears(Protocol):
+    """The part of push-to-talk the window needs."""
+
+    def start(self) -> bool:
+        """Open the microphone if Potato is active. Whether it opened."""
+        ...
+
+    def stop(self) -> bytes:
+        """Close the microphone and hand back the audio."""
+        ...
+
+    def discard(self) -> None:
+        """Close the microphone and throw the audio away."""
+        ...
+
+    def transcribe(self, audio: bytes) -> str:
+        """Turn audio into text. Slow: called on a worker thread."""
+        ...
+
+    def on_level(self, listener: Callable[[float], None]) -> None:
+        """Be told how loud the voice is while recording, from any thread."""
+        ...
+
+
 class _Bridge(QObject):
     """Carries results from other threads to the window, safely.
 
@@ -142,6 +181,8 @@ class _Bridge(QObject):
     action_finished = Signal(object)
     state_changed = Signal(object)
     speaking_changed = Signal(object)
+    heard = Signal(object)
+    level = Signal(object)
 
 
 Starter = Callable[[Callable[[], None]], None]
@@ -166,6 +207,7 @@ class PotatoWindow(QMainWindow):
         approve_delay_ms: int = APPROVE_DELAY_MS,
         approval_timeout_ms: int = DIALOG_TIMEOUT_MS,
         voice: Voice | None = None,
+        ears: Ears | None = None,
     ) -> None:
         """Build the window. Nothing runs until the user acts.
 
@@ -182,7 +224,9 @@ class PotatoWindow(QMainWindow):
             approve_delay_ms: How long Approve stays disabled after the
                 dialog appears. Tests shorten it.
             approval_timeout_ms: How long the dialog waits before it denies.
-            voice: Reads replies aloud when the user turns on "Read aloud".
+            voice: Reads replies aloud when the user turns on "Read aloud",
+                and always for a spoken request.
+            ears: The microphone and speech-to-text, for "Hold to talk".
         """
         super().__init__()
         self._conversation = conversation
@@ -196,6 +240,9 @@ class PotatoWindow(QMainWindow):
         self._busy = False
         self._speaking = False
         self._voice = voice
+        self._ears = ears
+        self._listening = False
+        self._turn_origin = ORIGIN
         # Actions waiting to be asked about, each with the proposal to hand
         # back to the gate, and the one being asked about now.
         self._waiting: list[tuple[object, object]] = []
@@ -207,6 +254,10 @@ class PotatoWindow(QMainWindow):
         self._bridge.speaking_changed.connect(self._show_speaking)
         if voice is not None:
             voice.on_speaking(self._bridge.speaking_changed.emit)
+        self._bridge.heard.connect(self._show_heard)
+        self._bridge.level.connect(self._show_level)
+        if ears is not None:
+            ears.on_level(self._bridge.level.emit)
 
         self.setWindowTitle(TITLE)
         self.orb = Orb()
@@ -224,6 +275,15 @@ class PotatoWindow(QMainWindow):
         self.speak_button.setCheckable(True)
         self.speak_button.setEnabled(voice is not None)
         self.speak_button.toggled.connect(self._speak_toggled)
+        # Push-to-talk: the microphone is open only while this is held down.
+        self.talk_button = QPushButton("Hold to talk")
+        self.talk_button.setEnabled(ears is not None)
+        self.talk_button.pressed.connect(self.start_talking)
+        self.talk_button.released.connect(self.stop_talking)
+        self._talk_limit = QTimer(self)
+        self._talk_limit.setSingleShot(True)
+        self._talk_limit.setInterval(MAX_TALK_MS)
+        self._talk_limit.timeout.connect(self.stop_talking)
         self.dashboard: SecurityDashboard | None = None
         self.wake_button.clicked.connect(self._wake)
         self.sleep_button.clicked.connect(self._sleep)
@@ -266,6 +326,7 @@ class PotatoWindow(QMainWindow):
         top.addWidget(self.speak_button)
         top.addWidget(self.security_button)
         bottom = QHBoxLayout()
+        bottom.addWidget(self.talk_button)
         bottom.addWidget(self.entry, 1)
         bottom.addWidget(self.send_button)
         layout = QVBoxLayout()
@@ -327,6 +388,98 @@ class PotatoWindow(QMainWindow):
         self.dashboard.show()
         self.dashboard.raise_()
         self.dashboard.refresh()
+
+    # --- Push-to-talk -------------------------------------------------------
+
+    @property
+    def listening(self) -> bool:
+        """Whether "Hold to talk" is being held and the microphone is open."""
+        return self._listening
+
+    def start_talking(self) -> None:
+        """Open the microphone.
+
+        Pressing the button is a physical action, so it may wake Potato, as
+        typing does (``Event.INTERFACE_TALK``).
+        """
+        if self._ears is None or self._busy or self._listening:
+            return
+        if self._state.state is not AssistantState.ACTIVE:
+            try:
+                self._state.handle(Event.INTERFACE_TALK)
+            except StateTransitionError:
+                self._say(POTATO, TEXT_CANNOT_WAKE)
+                return
+        # Potato must not hear itself.
+        if self._voice is not None:
+            self._voice.stop()
+        self._state.record_activity()
+        if not self._ears.start():
+            self._say(POTATO, TEXT_MIC_FAILED)
+            return
+        self._listening = True
+        self._talk_limit.start()
+        self.status.setText(TEXT_LISTENING)
+
+    def stop_talking(self) -> None:
+        """Close the microphone and send what was heard as a spoken request."""
+        if self._ears is None or not self._listening:
+            return
+        self._listening = False
+        self._talk_limit.stop()
+        self.orb.set_level(0.0)
+        try:
+            audio = self._ears.stop()
+        except Exception:
+            # The microphone may still be open. Close everything.
+            self._fail()
+            self._say(POTATO, TEXT_MIC_FAILED)
+            return
+        if not audio:
+            self._show_state(self._state.state)
+            self._say(POTATO, TEXT_HEARD_NOTHING)
+            return
+        self._state.record_activity()
+        self._set_busy(True)
+        self._turn_origin = RequestOrigin.VOICE
+        self.status.setText(TEXT_TRANSCRIBING)
+        ears = self._ears
+        self._start(lambda: self._run_spoken_turn(ears, audio))
+
+    def _fail(self) -> None:
+        with contextlib.suppress(StateTransitionError):
+            self._state.fail()
+
+    def _run_spoken_turn(self, ears: Ears, audio: bytes) -> None:
+        # Runs on a worker thread: touches no widget.
+        try:
+            words = ears.transcribe(audio)
+        except Exception:
+            self._bridge.heard.emit(None)
+            return
+        if not isinstance(words, str) or not words.strip():
+            self._bridge.heard.emit("")
+            return
+        self._bridge.heard.emit(words)
+        try:
+            result: object = self._conversation.run(words, RequestOrigin.VOICE)
+        except Exception:
+            result = None
+        self._bridge.turn_finished.emit(result)
+
+    def _show_heard(self, words: object) -> None:
+        if isinstance(words, str) and words:
+            self._say(YOU_SPOKEN, words)
+            self.status.setText(TEXT_THINKING)
+            return
+        self._set_busy(False)
+        self._show_state(self._state.state)
+        self._say(POTATO, TEXT_NOT_UNDERSTOOD if words is None else TEXT_HEARD_NOTHING)
+
+    def _show_level(self, level: object) -> None:
+        if self._listening:
+            self.orb.set_level(level)
+            self.bubble.orb.set_level(level)
 
     # --- Speaking -----------------------------------------------------------
 
@@ -403,6 +556,7 @@ class PotatoWindow(QMainWindow):
         self.entry.clear()
         self._say(YOU, words)
         self._set_busy(True)
+        self._turn_origin = ORIGIN
         self.status.setText(TEXT_THINKING)
         self._start(lambda: self._run_turn(words))
 
@@ -433,7 +587,8 @@ class PotatoWindow(QMainWindow):
             self._say(POTATO, TEXT_NEEDS_APPROVAL)
         if result.text or result.status is not TurnStatus.ANSWERED:
             self._say(POTATO, result.text or TEXT_TURN_FAILED)
-        if self._voice is not None and self.speak_button.isChecked():
+        spoken = self._turn_origin is RequestOrigin.VOICE
+        if self._voice is not None and (spoken or self.speak_button.isChecked()):
             self._voice.reply(result)
         if pending and can_approve:
             self._waiting.extend(pending)
@@ -534,6 +689,10 @@ class PotatoWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt's name
         """Deny anything still waiting, then put Potato to sleep."""
         self.bubble.close()
+        if self._ears is not None and self._listening:
+            self._listening = False
+            with contextlib.suppress(Exception):
+                self._ears.discard()
         if self._voice is not None:
             self._voice.stop()
         if self.dashboard is not None:

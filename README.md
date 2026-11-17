@@ -16,8 +16,9 @@ gate") that the model can't talk its way around.
 ## Where it's at
 
 **Pre-alpha.** You can start Potato and type to it: it answers using the
-local model and can use its tools. It can read its replies aloud, but it
-can't listen yet, so for now you type. Everything that's there is tested.
+local model and can use its tools. You can type or hold "Hold to talk" and
+speak, and it can read its replies aloud. Speech is turned into text on the
+Mac itself. Everything that's there is tested.
 
 | Part | State |
 | --- | --- |
@@ -48,7 +49,8 @@ can't listen yet, so for now you type. Everything that's there is tested.
 | A potato mascot, drawn in code, in the window, the dashboard and the app icon | Done |
 | Security dashboard: protections, programs, network and updates on one screen, with "Show all" | Done |
 | Reading replies aloud with the Mac's own voice (off until you turn it on; private results are shown, not spoken) | Done |
-| Voice input: push-to-talk and local speech-to-text | Next |
+| Voice input: push-to-talk and speech-to-text on the Mac (Whisper) | Done |
+| Wake word ("Potato") | Maybe later |
 | Dependency scan | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
 
@@ -149,6 +151,18 @@ the settings below): it's quicker but not as clever.
 
 If Ollama isn't running or the model isn't there, Potato just says so.
 
+To talk to Potato, download the speech model once (about 490 MB). The script
+fetches a pinned version and checks its SHA-256 before installing it; Potato
+itself never downloads anything:
+
+```bash
+python scripts/download_speech_model.py
+```
+
+Then hold **Hold to talk**, speak, and let go. The first time, macOS asks
+whether your terminal may use the microphone. The microphone is only open
+while you hold the button, and the audio never leaves memory.
+
 ## Checks
 
 ```bash
@@ -207,7 +221,7 @@ src/potato/
     security/       the gate, approvals, audit log
     modules/        the tools: launcher, portfolio, calendar, monitors
     integrations/   the only code that talks to anything outside Potato
-    voice/          reading replies aloud; microphone coming next
+    voice/          push-to-talk, speech-to-text, reading replies aloud
     storage/        local SQLite database
     ui/             PySide6 desktop window
 docs/               threat model, architecture, permissions
