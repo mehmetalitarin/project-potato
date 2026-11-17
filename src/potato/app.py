@@ -69,7 +69,10 @@ from potato.storage.settings_file import (
 )
 from potato.ui.mascot import potato_icon
 from potato.ui.window import PotatoWindow
+from potato.voice.listener import Ears
+from potato.voice.microphone import SoundDeviceMicrophone
 from potato.voice.speaker import Speaker
+from potato.voice.transcriber import MODEL_FOLDER_NAME, WhisperTranscriber
 
 APPLICATION_NAME: Final = "Potato"
 IDLE_CHECK_MS: Final = 5000
@@ -98,6 +101,8 @@ class Locations:
     settings: Path
     logs: Path
     database: Path
+    # Where the user downloads the speech model (scripts/download_speech_model.py).
+    speech_model: Path | None = None
 
 
 def default_locations() -> Locations:
@@ -106,7 +111,13 @@ def default_locations() -> Locations:
         settings=default_settings_path(),
         logs=default_log_directory(),
         database=default_database_path(),
+        speech_model=default_speech_model_folder(),
     )
+
+
+def default_speech_model_folder() -> Path:
+    """Where the speech model is kept, next to Potato's database."""
+    return default_database_path().parent / "speech" / MODEL_FOLDER_NAME
 
 
 def enabled_tools(database_path: Path) -> tuple[ToolDefinition, ...]:
@@ -287,6 +298,9 @@ def build(
 
     # Reads replies aloud with macOS's own voice, only while active.
     speaker = Speaker(state, start_speaking)
+    # Push-to-talk. Opens no microphone and loads no model until it is used.
+    speech_folder = locations.speech_model or default_speech_model_folder()
+    ears = Ears(state, SoundDeviceMicrophone(), WhisperTranscriber(speech_folder))
     window = PotatoWindow(
         TurnEngine(model, gate, state),
         state,
@@ -295,6 +309,7 @@ def build(
         # Each tool's own fixed sentence, written in Potato's code.
         descriptions={tool.name: tool.description for tool in allowed},
         voice=speaker,
+        ears=ears,
     )
     return Application(window, state, audit, unloader, log_handler)
 

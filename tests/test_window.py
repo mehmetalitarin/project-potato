@@ -24,10 +24,15 @@ from potato.ui.window import (
     POTATO,
     STATE_TEXT,
     TEXT_CANNOT_WAKE,
+    TEXT_HEARD_NOTHING,
+    TEXT_LISTENING,
+    TEXT_MIC_FAILED,
     TEXT_NEEDS_APPROVAL,
+    TEXT_NOT_UNDERSTOOD,
     TEXT_THINKING,
     TEXT_TURN_FAILED,
     YOU,
+    YOU_SPOKEN,
     PotatoWindow,
 )
 
@@ -547,3 +552,256 @@ def test_the_speaking_signal_ignores_anything_but_true(
         voice.listeners[0](odd)  # type: ignore[arg-type]
         app.processEvents()
         assert not speaking_window._speaking
+
+
+# --- Push-to-talk ------------------------------------------------------------
+
+
+class FakeEars:
+    def __init__(self, words: object = "open safari") -> None:
+        self.words = words
+        self.started = 0
+        self.stopped = 0
+        self.discarded = 0
+        self.can_open = True
+        self.audio = b"\x01\x00" * 8000
+        self.level_listeners: list[Callable[[float], None]] = []
+        self.transcribed_on: list[str] = []
+
+    def start(self) -> bool:
+        self.started += 1
+        return self.can_open
+
+    def stop(self) -> bytes:
+        self.stopped += 1
+        return self.audio
+
+    def discard(self) -> None:
+        self.discarded += 1
+
+    def transcribe(self, audio: bytes) -> str:
+        self.transcribed_on.append(threading.current_thread().name)
+        if isinstance(self.words, BaseException):
+            raise self.words
+        return self.words  # type: ignore[return-value]
+
+    def on_level(self, listener: Callable[[float], None]) -> None:
+        self.level_listeners.append(listener)
+
+
+@pytest.fixture
+def ears() -> FakeEars:
+    return FakeEars()
+
+
+@pytest.fixture
+def talking_window(
+    app: QApplication,
+    conversation: FakeConversation,
+    state: StateManager,
+    manual: Manual,
+    voice: FakeVoice,
+    ears: FakeEars,
+) -> Iterator[PotatoWindow]:
+    made = PotatoWindow(conversation, state, start=manual, voice=voice, ears=ears)
+    yield made
+    made.close()
+    made.deleteLater()
+    app.processEvents()
+
+
+def talk(app: QApplication, window: PotatoWindow, manual: Manual) -> None:
+    window.start_talking()
+    window.stop_talking()
+    manual.run_all()
+    app.processEvents()
+
+
+def test_without_ears_hold_to_talk_is_off(window: PotatoWindow) -> None:
+    assert not window.talk_button.isEnabled()
+    window.start_talking()
+    assert not window.listening
+
+
+def test_holding_wakes_potato_and_opens_the_microphone(
+    talking_window: PotatoWindow, ears: FakeEars, state: StateManager
+) -> None:
+    assert now(state) is AssistantState.SLEEPING
+    talking_window.talk_button.pressed.emit()
+    assert now(state) is AssistantState.ACTIVE
+    assert ears.started == 1
+    held = [talking_window.listening]
+    assert talking_window.status.text() == TEXT_LISTENING
+    talking_window.talk_button.released.emit()
+    held.append(talking_window.listening)
+    assert held == [True, False]
+    assert ears.stopped == 1
+
+
+def test_a_spoken_request_runs_as_voice_and_is_read_aloud(
+    app: QApplication,
+    talking_window: PotatoWindow,
+    manual: Manual,
+    ears: FakeEars,
+    conversation: FakeConversation,
+    voice: FakeVoice,
+) -> None:
+    talk(app, talking_window, manual)
+    assert [(words, origin) for words, origin, _ in conversation.calls] == [
+        ("open safari", RequestOrigin.VOICE)
+    ]
+    assert lines(talking_window) == [f"{YOU_SPOKEN}: open safari", f"{POTATO}: echo open safari"]
+    # The reply to a spoken request is read aloud even with "Read aloud" off.
+    assert not talking_window.speak_button.isChecked()
+    assert [getattr(reply, "text", None) for reply in voice.replies] == ["echo open safari"]
+    assert not talking_window.busy
+
+
+def test_a_typed_request_after_a_spoken_one_is_typed_again(
+    app: QApplication,
+    talking_window: PotatoWindow,
+    manual: Manual,
+    conversation: FakeConversation,
+    voice: FakeVoice,
+) -> None:
+    talk(app, talking_window, manual)
+    send(app, talking_window, manual, "hi")
+    assert [origin for _, origin, _ in conversation.calls] == [
+        RequestOrigin.VOICE,
+        RequestOrigin.TYPED,
+    ]
+    assert len(voice.replies) == 1
+
+
+def test_what_was_heard_is_shown_as_plain_safe_text(
+    app: QApplication, talking_window: PotatoWindow, manual: Manual, ears: FakeEars
+) -> None:
+    ears.words = "abc\u202edef<b>x</b>"
+    talk(app, talking_window, manual)
+    assert lines(talking_window)[0] == f"{YOU_SPOKEN}: abc{MARKER}def<b>x</b>"
+
+
+@pytest.mark.parametrize(
+    ("words", "message"), [("", TEXT_HEARD_NOTHING), ("   ", TEXT_HEARD_NOTHING)]
+)
+def test_silence_sends_nothing(
+    app: QApplication,
+    talking_window: PotatoWindow,
+    manual: Manual,
+    ears: FakeEars,
+    conversation: FakeConversation,
+    words: str,
+    message: str,
+) -> None:
+    ears.words = words
+    talk(app, talking_window, manual)
+    assert conversation.calls == []
+    assert lines(talking_window) == [f"{POTATO}: {message}"]
+    assert not talking_window.busy
+
+
+def test_no_audio_at_all_is_not_transcribed(
+    app: QApplication, talking_window: PotatoWindow, manual: Manual, ears: FakeEars
+) -> None:
+    ears.audio = b""
+    talk(app, talking_window, manual)
+    assert ears.transcribed_on == []
+    assert lines(talking_window) == [f"{POTATO}: {TEXT_HEARD_NOTHING}"]
+
+
+def test_a_transcription_failure_says_a_fixed_sentence(
+    app: QApplication,
+    talking_window: PotatoWindow,
+    manual: Manual,
+    ears: FakeEars,
+    conversation: FakeConversation,
+) -> None:
+    ears.words = RuntimeError("/Users/someone/secret path")
+    talk(app, talking_window, manual)
+    assert conversation.calls == []
+    assert lines(talking_window) == [f"{POTATO}: {TEXT_NOT_UNDERSTOOD}"]
+    assert not talking_window.busy
+
+
+def test_a_microphone_that_will_not_open_is_reported(
+    talking_window: PotatoWindow, ears: FakeEars
+) -> None:
+    ears.can_open = False
+    talking_window.start_talking()
+    assert not talking_window.listening
+    assert lines(talking_window) == [f"{POTATO}: {TEXT_MIC_FAILED}"]
+
+
+def test_a_microphone_that_will_not_close_moves_potato_to_error(
+    talking_window: PotatoWindow, ears: FakeEars, state: StateManager
+) -> None:
+    def stuck() -> bytes:
+        raise RuntimeError("stuck")
+
+    ears.stop = stuck  # type: ignore[method-assign]
+    talking_window.start_talking()
+    talking_window.stop_talking()
+    assert now(state) is AssistantState.ERROR
+
+
+def test_talking_cannot_wake_potato_from_error(
+    talking_window: PotatoWindow, ears: FakeEars, state: StateManager
+) -> None:
+    state.fail()
+    talking_window.start_talking()
+    assert ears.started == 0
+    assert lines(talking_window) == [f"{POTATO}: {TEXT_CANNOT_WAKE}"]
+
+
+def test_holding_stops_potato_speaking_so_it_does_not_hear_itself(
+    talking_window: PotatoWindow, voice: FakeVoice
+) -> None:
+    talking_window.start_talking()
+    assert voice.stops == 1
+    talking_window.stop_talking()
+
+
+def test_talking_is_capped_at_30_seconds(talking_window: PotatoWindow, ears: FakeEars) -> None:
+    talking_window.start_talking()
+    assert talking_window._talk_limit.interval() == 30_000
+    assert talking_window._talk_limit.isActive()
+    talking_window._talk_limit.timeout.emit()
+    assert not talking_window.listening
+    assert ears.stopped == 1
+
+
+def test_nothing_can_be_said_while_busy(
+    app: QApplication, talking_window: PotatoWindow, manual: Manual, ears: FakeEars
+) -> None:
+    talking_window.entry.setText("hi")
+    talking_window.send()
+    talking_window.start_talking()
+    assert ears.started == 0
+    manual.run_all()
+    app.processEvents()
+
+
+def test_the_orb_follows_the_voice_level_only_while_listening(
+    app: QApplication, talking_window: PotatoWindow, ears: FakeEars
+) -> None:
+    levels = []
+    ears.level_listeners[0](0.8)
+    app.processEvents()
+    levels.append(talking_window.orb._level)
+    talking_window.start_talking()
+    ears.level_listeners[0](0.8)
+    app.processEvents()
+    levels.append(talking_window.orb._level)
+    talking_window.stop_talking()
+    levels.append(talking_window.orb._level)
+    assert levels == [0.0, 0.8, 0.0]
+
+
+def test_closing_while_holding_throws_the_audio_away(
+    talking_window: PotatoWindow, ears: FakeEars, conversation: FakeConversation
+) -> None:
+    talking_window.start_talking()
+    talking_window.close()
+    assert ears.discarded == 1
+    assert not talking_window.listening
+    assert conversation.calls == []

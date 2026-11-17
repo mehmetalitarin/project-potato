@@ -141,8 +141,21 @@ which package may import which is in that file.
 ## Assistant states
 
 Defined in `src/potato/core/state.py`, with every allowed change in one fixed
-table. A test checks this table against the code. Microphone and model control
-arrive in M7 and follow these states.
+table. A test checks this table against the code. The model and the
+microphone follow these states.
+
+Version 1.0 uses push-to-talk instead of a wake word, so in practice the
+microphone is open only while the user holds "Hold to talk" in the active
+state (`src/potato/voice/listener.py`). Holding the button is a physical
+action, so it may wake Potato, like typing. Leaving Active for any reason
+closes the microphone and throws away what was recorded; if it cannot be
+closed, Potato moves to Error. Recordings are capped at 30 seconds and kept
+in memory only. Speech-to-text (Whisper small.en through faster-whisper)
+runs on the Mac, loads only a model folder whose `model.bin` matches a
+pinned SHA-256, and runs with the Hugging Face library in offline mode.
+What was heard is shown as plain text and sent as `voice`, which reaches
+low-risk tools only (P6). The table below still describes a wake word, which
+may come later.
 
 | State | Microphone | Wake word | Speech-to-text | Model in memory |
 | --- | --- | --- | --- | --- |
