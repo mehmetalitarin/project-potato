@@ -13,12 +13,18 @@ from potato.core.state import AssistantState, Event, StateManager
 from potato.core.turns import TurnResult, TurnStatus
 from potato.security.gate import RequestOrigin
 from potato.ui.orb import (
+    BLEND_MS,
+    BLEND_UP_MS,
     FRAME_MS,
+    LISTENING_LEVEL,
     LOOKS,
     SLOW_FRAME_MS,
+    Drawn,
     Orb,
     OrbBubble,
     OrbMode,
+    blend,
+    drawn,
     mode_for,
 )
 from potato.ui.window import PotatoWindow
@@ -267,3 +273,143 @@ def test_closing_the_window_closes_the_bubble(
     made.show_bubble()
     made.close()
     assert not made.bubble.isVisible()
+
+
+# --- Smooth changes ----------------------------------------------------------
+
+
+def same(first: Drawn, second: Drawn) -> bool:
+    return (
+        first.colour.rgb() == second.colour.rgb()
+        and first.accent.rgb() == second.accent.rgb()
+        and math.isclose(first.speed, second.speed)
+        and math.isclose(first.brightness, second.brightness)
+        and math.isclose(first.sweep, second.sweep)
+        and math.isclose(first.ripple, second.ripple)
+    )
+
+
+def ticks_to_finish(orb: Orb) -> int:
+    count = 0
+    while orb.blending:
+        orb._tick()
+        count += 1
+        assert count < 1000
+    return count
+
+
+def test_blend_goes_from_start_to_end() -> None:
+    start, end = drawn(OrbMode.SLEEPING), drawn(OrbMode.THINKING)
+    assert same(blend(start, end, 0.0), start)
+    assert same(blend(start, end, 1.0), end)
+    middle = blend(start, end, 0.5)
+    assert start.speed < middle.speed < end.speed
+    assert 0.0 < middle.sweep < 1.0
+    for odd in (-3.0, 7.0, math.nan, math.inf):
+        result = blend(start, end, odd)
+        assert same(result, start) or same(result, end)
+    assert same(blend(start, end, math.nan), end)
+
+
+def test_the_mode_changes_at_once_and_the_drawing_catches_up(app: QApplication) -> None:
+    orb = Orb()
+    orb.show()
+    orb.set_mode(OrbMode.LISTENING)
+    ticks_to_finish(orb)
+    orb.set_mode(OrbMode.THINKING)
+    assert orb.mode is OrbMode.THINKING
+    assert orb.blending
+    assert not same(orb.current, drawn(OrbMode.THINKING))
+    orb._tick()
+    part_way = orb.current.speed
+    assert LOOKS[OrbMode.LISTENING].speed < part_way < LOOKS[OrbMode.THINKING].speed
+    ticks_to_finish(orb)
+    assert same(orb.current, drawn(OrbMode.THINKING))
+    orb.hide()
+
+
+def test_going_quieter_takes_about_half_a_second(app: QApplication) -> None:
+    orb = Orb()
+    orb.show()
+    orb.set_mode(OrbMode.THINKING)
+    ticks_to_finish(orb)
+    orb.set_mode(OrbMode.STANDBY)
+    assert ticks_to_finish(orb) == math.ceil(BLEND_MS / FRAME_MS)
+    orb.hide()
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (OrbMode.SLEEPING, OrbMode.STANDBY),
+        (OrbMode.SLEEPING, OrbMode.LISTENING),
+        (OrbMode.ERROR, OrbMode.LISTENING),
+        (OrbMode.STANDBY, OrbMode.LISTENING),
+    ],
+)
+def test_waking_up_shows_almost_at_once(app: QApplication, before: OrbMode, after: OrbMode) -> None:
+    # The orb must never look asleep while Potato could be listening.
+    assert LISTENING_LEVEL[after] > LISTENING_LEVEL[before]
+    orb = Orb()
+    orb.show()
+    orb.set_mode(before)
+    ticks_to_finish(orb)
+    orb.set_mode(after)
+    assert orb._timer.interval() == FRAME_MS
+    assert ticks_to_finish(orb) == math.ceil(BLEND_UP_MS / FRAME_MS)
+    assert BLEND_UP_MS <= 150
+    orb.hide()
+
+
+def test_every_mode_has_a_listening_level() -> None:
+    assert set(LISTENING_LEVEL) == set(OrbMode)
+    assert LISTENING_LEVEL[OrbMode.SLEEPING] == LISTENING_LEVEL[OrbMode.ERROR] == 0
+
+
+def test_a_hidden_orb_does_not_blend(app: QApplication) -> None:
+    orb = Orb()
+    orb.set_mode(OrbMode.SPEAKING)
+    seen = [orb.blending]
+    assert same(orb.current, drawn(OrbMode.SPEAKING))
+    orb.show()
+    orb.set_mode(OrbMode.SLEEPING)
+    seen.append(orb.blending)
+    orb.hide()
+    seen.append(orb.blending)
+    assert seen == [False, True, False]
+
+
+def test_it_slows_down_only_once_the_blend_into_sleep_is_done(app: QApplication) -> None:
+    orb = Orb()
+    orb.show()
+    orb.set_mode(OrbMode.LISTENING)
+    ticks_to_finish(orb)
+    orb.set_mode(OrbMode.SLEEPING)
+    assert orb._timer.interval() == FRAME_MS
+    ticks_to_finish(orb)
+    assert orb._timer.interval() == SLOW_FRAME_MS
+    orb.hide()
+
+
+def test_a_change_of_speed_never_makes_the_picture_jump(app: QApplication) -> None:
+    orb = Orb()
+    orb.show()
+    orb.set_mode(OrbMode.LISTENING)
+    for _ in range(30):
+        orb._tick()
+    before = orb._phase
+    orb.set_mode(OrbMode.THINKING)
+    assert orb._phase == before
+    orb._tick()
+    assert 0 < orb._phase - before < 0.2
+    orb.hide()
+
+
+def test_the_same_mode_again_does_not_restart_the_blend(app: QApplication) -> None:
+    orb = Orb()
+    orb.show()
+    orb.set_mode(OrbMode.LISTENING)
+    ticks_to_finish(orb)
+    orb.set_mode(OrbMode.LISTENING)
+    assert not orb.blending
+    orb.hide()

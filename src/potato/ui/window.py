@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -58,6 +59,7 @@ from potato.ui.approval import (
     describe_action,
 )
 from potato.ui.dashboard import SecurityDashboard
+from potato.ui.mascot import Mascot, Mood
 from potato.ui.orb import Orb, OrbBubble, mode_for
 from potato.ui.text import displayable
 
@@ -70,6 +72,7 @@ STATE_TEXT: Final = {
     AssistantState.ACTIVE: "Active: ready for a request.",
     AssistantState.ERROR: "Something went wrong, so everything was closed. Wake Potato to retry.",
 }
+TEXT_EMPTY_CHAT: Final = "Hi, I'm Potato. Wake me up, then type a request below."
 TEXT_THINKING: Final = "Thinking..."
 TEXT_TURN_FAILED: Final = "Something went wrong with that request. Nothing was run."
 TEXT_CANNOT_WAKE: Final = "Potato could not wake up just now."
@@ -202,6 +205,22 @@ class PotatoWindow(QMainWindow):
         self.transcript.setMaximumBlockCount(MAX_TRANSCRIPT_LINES)
         self.transcript.setUndoRedoEnabled(False)
 
+        # Until the first message, the chat shows the mascot instead.
+        self.mascot = Mascot(36)
+        self.empty_mascot = Mascot(120)
+        empty_text = self._plain_label(TEXT_EMPTY_CHAT)
+        empty_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout = QVBoxLayout()
+        empty_layout.addStretch(1)
+        empty_layout.addWidget(self.empty_mascot, 0, Qt.AlignmentFlag.AlignHCenter)
+        empty_layout.addWidget(empty_text)
+        empty_layout.addStretch(1)
+        self.empty_chat = QWidget()
+        self.empty_chat.setLayout(empty_layout)
+        self.chat = QStackedWidget()
+        self.chat.addWidget(self.empty_chat)
+        self.chat.addWidget(self.transcript)
+
         self.entry = QLineEdit()
         self.entry.setMaxLength(MAX_USER_CHARACTERS)
         self.entry.setPlaceholderText("Type a request and press Return")
@@ -210,6 +229,7 @@ class PotatoWindow(QMainWindow):
         self.send_button.clicked.connect(self.send)
 
         top = QHBoxLayout()
+        top.addWidget(self.mascot)
         top.addWidget(self.status, 1)
         top.addWidget(self.wake_button)
         top.addWidget(self.sleep_button)
@@ -221,7 +241,7 @@ class PotatoWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(self.orb)
         layout.addLayout(top)
-        layout.addWidget(self.transcript, 1)
+        layout.addWidget(self.chat, 1)
         layout.addLayout(bottom)
         central = QWidget()
         central.setLayout(layout)
@@ -245,6 +265,7 @@ class PotatoWindow(QMainWindow):
 
     def _say(self, who: str, text: str) -> None:
         self.transcript.appendPlainText(f"{who}: {displayable(text)}")
+        self.chat.setCurrentWidget(self.transcript)
 
     @property
     def busy(self) -> bool:
@@ -302,6 +323,9 @@ class PotatoWindow(QMainWindow):
         if not isinstance(state, AssistantState):
             return
         self.status.setText(STATE_TEXT[state])
+        mood = Mood.SLEEPY if state is AssistantState.SLEEPING else Mood.HAPPY
+        self.mascot.set_mood(mood)
+        self.empty_mascot.set_mood(mood)
         self._update_orbs()
         if state is not AssistantState.ACTIVE and self._asking is not None:
             # Potato went to sleep or failed while asking. That is a "no".

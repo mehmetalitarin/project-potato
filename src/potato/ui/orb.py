@@ -13,6 +13,11 @@ glance whether Potato could be listening:
 
 The orb is in the main window, and can also float on its own above other
 applications (``OrbBubble``). It animates only while it can be seen.
+
+Changing mode blends the colours and the speed instead of jumping. The mode
+itself changes at once; only the drawing catches up. When the new mode
+listens more than the old one (waking up), the blend is kept very short, so
+the orb never looks asleep while Potato could be listening.
 """
 
 import math
@@ -41,6 +46,8 @@ FRAME_MS: Final = 33
 SLOW_FRAME_MS: Final = 100
 PARTICLES: Final = 56
 TICKS: Final = 72
+BLEND_MS: Final = 500
+BLEND_UP_MS: Final = 120
 
 
 class OrbMode(StrEnum):
@@ -94,6 +101,68 @@ LOOKS: Final[dict[OrbMode, Look]] = {
 }
 
 
+# How much each mode could be listening: never, the wake word only, or fully.
+LISTENING_LEVEL: Final[dict[OrbMode, int]] = {
+    OrbMode.SLEEPING: 0,
+    OrbMode.ERROR: 0,
+    OrbMode.STANDBY: 1,
+    OrbMode.LISTENING: 2,
+    OrbMode.THINKING: 2,
+    OrbMode.SPEAKING: 2,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Drawn:
+    """What is actually drawn: a look, possibly half-way to another."""
+
+    colour: QColor
+    accent: QColor
+    speed: float
+    brightness: float
+    sweep: float
+    ripple: float
+
+
+def drawn(mode: OrbMode) -> Drawn:
+    """How ``mode`` is drawn once any blend has finished."""
+    look = LOOKS[mode]
+    return Drawn(
+        QColor(look.colour),
+        QColor(look.accent),
+        look.speed,
+        look.brightness,
+        1.0 if look.sweep else 0.0,
+        1.0 if mode is OrbMode.SPEAKING else 0.0,
+    )
+
+
+def _mix(start: QColor, end: QColor, amount: float) -> QColor:
+    return QColor.fromRgbF(
+        start.redF() + (end.redF() - start.redF()) * amount,
+        start.greenF() + (end.greenF() - start.greenF()) * amount,
+        start.blueF() + (end.blueF() - start.blueF()) * amount,
+    )
+
+
+def blend(start: Drawn, end: Drawn, amount: float) -> Drawn:
+    """Part of the way from ``start`` to ``end``, eased at both ends."""
+    amount = min(1.0, max(0.0, amount)) if math.isfinite(amount) else 1.0
+    eased = amount * amount * (3 - 2 * amount)
+
+    def number(a: float, b: float) -> float:
+        return a + (b - a) * eased
+
+    return Drawn(
+        _mix(start.colour, end.colour, eased),
+        _mix(start.accent, end.accent, eased),
+        number(start.speed, end.speed),
+        number(start.brightness, end.brightness),
+        number(start.sweep, end.sweep),
+        number(start.ripple, end.ripple),
+    )
+
+
 @dataclass(slots=True)
 class _Particle:
     radius: float
@@ -117,6 +186,12 @@ class Orb(QWidget):
         self._mode = OrbMode.SLEEPING
         self._level = 0.0
         self._time = 0.0
+        # How far round things have turned. Kept separately from the time so
+        # that a change of speed never makes the picture jump.
+        self._phase = 0.0
+        self._from = drawn(OrbMode.SLEEPING)
+        self._progress = 1.0
+        self._blend_ms = BLEND_MS
         randomness = random.Random(seed)  # noqa: S311 - decoration, not security
         self._particles = [
             _Particle(
@@ -144,9 +219,24 @@ class Orb(QWidget):
         """Show ``mode``. Anything that is not an ``OrbMode`` is ignored."""
         if not isinstance(mode, OrbMode):
             return
+        if mode is not self._mode:
+            waking = LISTENING_LEVEL[mode] > LISTENING_LEVEL[self._mode]
+            self._from = self.current
+            self._progress = 0.0 if self.isVisible() else 1.0
+            self._blend_ms = BLEND_UP_MS if waking else BLEND_MS
         self._mode = mode
         self._restart_timer()
         self.update()
+
+    @property
+    def current(self) -> Drawn:
+        """What is being drawn right now."""
+        return blend(self._from, drawn(self._mode), self._progress)
+
+    @property
+    def blending(self) -> bool:
+        """Whether the drawing is still catching up with the mode."""
+        return self._progress < 1.0
 
     def set_level(self, level: object) -> None:
         """How loud the voice is, from 0 to 1. Makes the orb ripple."""
@@ -164,12 +254,20 @@ class Orb(QWidget):
         if not self.isVisible():
             self._timer.stop()
             return
-        slow = self._mode in (OrbMode.SLEEPING, OrbMode.ERROR)
-        self._timer.start(SLOW_FRAME_MS if slow else FRAME_MS)
+        slow = self._mode in (OrbMode.SLEEPING, OrbMode.ERROR) and not self.blending
+        interval = SLOW_FRAME_MS if slow else FRAME_MS
+        if not self._timer.isActive() or self._timer.interval() != interval:
+            self._timer.start(interval)
 
     def _tick(self) -> None:
-        self._time += self._timer.interval() / 1000.0
+        step = self._timer.interval() / 1000.0
+        self._phase += step * self.current.speed
+        self._time += step
         self._level *= 0.85
+        if self._progress < 1.0:
+            self._progress = min(1.0, self._progress + step * 1000.0 / self._blend_ms)
+            if self._progress >= 1.0:
+                self._restart_timer()
         self.update()
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 - Qt's name
@@ -181,6 +279,7 @@ class Orb(QWidget):
         """Stop animating when it cannot be seen."""
         super().hideEvent(event)
         self._timer.stop()
+        self._progress = 1.0
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt's name
         """Report a click."""
@@ -192,11 +291,11 @@ class Orb(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt's name
         """Draw the layers: glow, ticks, rings, arcs, particles, core, sweep."""
-        look = LOOKS[self._mode]
+        look = self.current
         side = min(self.width(), self.height())
         radius = side / 2 - 4
         centre = QPointF(self.width() / 2, self.height() / 2)
-        t = self._time * look.speed
+        t = self._phase
         breath = 0.5 + 0.5 * math.sin(self._time * (1.2 + look.speed))
         level = self._level if self._mode in (OrbMode.LISTENING, OrbMode.SPEAKING) else 0.0
 
@@ -272,21 +371,21 @@ class Orb(QWidget):
             painter.drawEllipse(point, particle.size, particle.size)
 
         # Speaking: ripples moving outwards.
-        if self._mode is OrbMode.SPEAKING:
+        if look.ripple > 0:
             painter.setBrush(Qt.BrushStyle.NoBrush)
             for index in range(3):
                 phase = (self._time * 0.8 + index / 3) % 1.0
-                pen = QPen(colour(look.colour, 0.6 * (1 - phase)))
+                pen = QPen(colour(look.colour, 0.6 * (1 - phase) * look.ripple))
                 pen.setWidthF(1.5)
                 painter.setPen(pen)
                 ripple = radius * (0.35 + 0.55 * phase)
                 painter.drawEllipse(QPointF(0, 0), ripple, ripple)
 
         # Thinking: a sweep, like radar.
-        if look.sweep:
+        if look.sweep > 0:
             painter.save()
             painter.rotate(math.degrees(self._time * 4.0))
-            pen = QPen(colour(look.accent, 0.8))
+            pen = QPen(colour(look.accent, 0.8 * look.sweep))
             pen.setWidthF(2.0)
             painter.setPen(pen)
             painter.drawLine(QPointF(radius * 0.2, 0), QPointF(radius * 0.86, 0))

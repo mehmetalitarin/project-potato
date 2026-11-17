@@ -213,7 +213,14 @@ person clicks. What it guarantees:
   window, and the floating bubble that can stand in for the window, are
   drawn by code from Potato's state alone. The state always wins: the orb
   can never look busy or attentive while Potato is asleep, so it doubles as a
-  microphone indicator. It animates only while it can be seen.
+  microphone indicator. It animates only while it can be seen. Changes of
+  mode blend over half a second, but the mode itself changes at once, and
+  when Potato wakes up the blend lasts only about a tenth of a second, so the
+  orb never looks asleep while Potato could be listening.
+- **The mascot is drawn by code.** The potato in the window, the dashboard
+  and the app icon is painted with QPainter from fixed shapes. No image file
+  is loaded, and it only shows two moods: sleepy while Potato sleeps, happy
+  otherwise.
 - **The dashboard goes through the gate.** The security dashboard runs its
   read-only tools through the gate as `interface`, so each run is checked,
   rate-limited and audited, and shows their own data formatted by code. The

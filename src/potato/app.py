@@ -66,6 +66,7 @@ from potato.storage.settings_file import (
     default_settings_path,
     read_settings_file,
 )
+from potato.ui.mascot import potato_icon
 from potato.ui.window import PotatoWindow
 
 APPLICATION_NAME: Final = "Potato"
@@ -310,6 +311,7 @@ def run(locations: Locations | None = None) -> int:
     existing = QApplication.instance()
     qt = existing if isinstance(existing, QApplication) else QApplication([APPLICATION_NAME])
     qt.setApplicationName(APPLICATION_NAME)
+    qt.setWindowIcon(potato_icon())
     try:
         application = build(settings, places)
     except (PrivateFileError, AuditLogError) as error:
