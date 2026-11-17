@@ -16,8 +16,8 @@ gate") that the model can't talk its way around.
 ## Where it's at
 
 **Pre-alpha.** You can start Potato and type to it: it answers using the
-local model and can use its tools. There's no voice yet, so for now it's a
-chat window, not a voice assistant. Everything that's there is tested.
+local model and can use its tools. It can read its replies aloud, but it
+can't listen yet, so for now you type. Everything that's there is tested.
 
 | Part | State |
 | --- | --- |
@@ -47,7 +47,8 @@ chat window, not a voice assistant. Everything that's there is tested.
 | The orb: an animated status indicator, in the window or floating above other apps, with smooth changes | Done |
 | A potato mascot, drawn in code, in the window, the dashboard and the app icon | Done |
 | Security dashboard: protections, programs, network and updates on one screen, with "Show all" | Done |
-| Voice: wake word, speech-to-text, text-to-speech | Next |
+| Reading replies aloud with the Mac's own voice (off until you turn it on; private results are shown, not spoken) | Done |
+| Voice input: push-to-talk and local speech-to-text | Next |
 | Dependency scan | Not started |
 | Live stock prices (needs a Finnhub key) | Set aside |
 
@@ -206,7 +207,7 @@ src/potato/
     security/       the gate, approvals, audit log
     modules/        the tools: launcher, portfolio, calendar, monitors
     integrations/   the only code that talks to anything outside Potato
-    voice/          microphone, wake word, speech (coming later)
+    voice/          reading replies aloud; microphone coming next
     storage/        local SQLite database
     ui/             PySide6 desktop window
 docs/               threat model, architecture, permissions

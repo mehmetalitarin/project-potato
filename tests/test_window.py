@@ -18,6 +18,7 @@ from potato.core.state import AssistantState, Event, StateManager
 from potato.core.turns import ToolOutcome, TurnResult, TurnStatus
 from potato.security.approvals import ApprovalRequest
 from potato.security.gate import ReasonCode, RequestOrigin
+from potato.ui.orb import OrbMode
 from potato.ui.text import MARKER
 from potato.ui.window import (
     POTATO,
@@ -447,3 +448,102 @@ def test_the_interface_never_renders_rich_text() -> None:
         "QMessageBox", "QInputDialog", "QErrorMessage", "setToolTip", "setWhatsThis",
     }  # fmt: skip
     assert not forbidden & _ui_names()
+
+
+# --- Speaking ----------------------------------------------------------------
+
+
+class FakeVoice:
+    def __init__(self) -> None:
+        self.replies: list[object] = []
+        self.stops = 0
+        self.listeners: list[Callable[[bool], None]] = []
+
+    def reply(self, result: object) -> bool:
+        self.replies.append(result)
+        return True
+
+    def stop(self) -> None:
+        self.stops += 1
+
+    def on_speaking(self, listener: Callable[[bool], None]) -> None:
+        self.listeners.append(listener)
+
+
+@pytest.fixture
+def voice() -> FakeVoice:
+    return FakeVoice()
+
+
+@pytest.fixture
+def speaking_window(
+    app: QApplication,
+    conversation: FakeConversation,
+    state: StateManager,
+    manual: Manual,
+    voice: FakeVoice,
+) -> Iterator[PotatoWindow]:
+    made = PotatoWindow(conversation, state, start=manual, voice=voice)
+    yield made
+    made.close()
+    made.deleteLater()
+    app.processEvents()
+
+
+def test_without_a_voice_speak_cannot_be_turned_on(window: PotatoWindow) -> None:
+    assert not window.speak_button.isEnabled()
+    assert not window.speak_button.isChecked()
+
+
+def test_replies_are_spoken_only_once_speak_is_turned_on(
+    app: QApplication, speaking_window: PotatoWindow, manual: Manual, voice: FakeVoice
+) -> None:
+    assert speaking_window.speak_button.isEnabled()
+    assert not speaking_window.speak_button.isChecked()
+    send(app, speaking_window, manual, "quiet")
+    assert voice.replies == []
+    speaking_window.speak_button.click()
+    send(app, speaking_window, manual, "loud")
+    assert [getattr(reply, "text", None) for reply in voice.replies] == ["echo loud"]
+
+
+def test_turning_speak_off_or_closing_stops_the_voice(
+    speaking_window: PotatoWindow, voice: FakeVoice
+) -> None:
+    speaking_window.speak_button.click()
+    speaking_window.speak_button.click()
+    assert voice.stops == 1
+    speaking_window.close()
+    assert voice.stops == 2
+
+
+def test_the_orb_shows_speaking_only_while_active(
+    app: QApplication,
+    speaking_window: PotatoWindow,
+    manual: Manual,
+    voice: FakeVoice,
+    state: StateManager,
+) -> None:
+    send(app, speaking_window, manual, "hi")
+    assert voice.listeners
+    modes = []
+    voice.listeners[0](True)
+    app.processEvents()
+    modes.append(speaking_window.orb.mode)
+    voice.listeners[0](False)
+    app.processEvents()
+    modes.append(speaking_window.orb.mode)
+    voice.listeners[0](True)
+    state.handle(Event.INTERFACE_SLEEP)
+    app.processEvents()
+    modes.append(speaking_window.orb.mode)
+    assert modes == [OrbMode.SPEAKING, OrbMode.LISTENING, OrbMode.SLEEPING]
+
+
+def test_the_speaking_signal_ignores_anything_but_true(
+    app: QApplication, speaking_window: PotatoWindow, voice: FakeVoice
+) -> None:
+    for odd in ("yes", 1, None):
+        voice.listeners[0](odd)  # type: ignore[arg-type]
+        app.processEvents()
+        assert not speaking_window._speaking

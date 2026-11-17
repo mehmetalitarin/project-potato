@@ -45,6 +45,7 @@ from potato.integrations.ollama import (
     OllamaResponseError,
     OllamaUnavailableError,
 )
+from potato.integrations.processes import start_speaking
 from potato.modules.calendar import calendar_tools
 from potato.modules.launcher import launcher_tools
 from potato.modules.link_analysis import link_analysis_tools
@@ -68,6 +69,7 @@ from potato.storage.settings_file import (
 )
 from potato.ui.mascot import potato_icon
 from potato.ui.window import PotatoWindow
+from potato.voice.speaker import Speaker
 
 APPLICATION_NAME: Final = "Potato"
 IDLE_CHECK_MS: Final = 5000
@@ -283,6 +285,8 @@ def build(
     )
     state.subscribe(unloader)
 
+    # Reads replies aloud with macOS's own voice, only while active.
+    speaker = Speaker(state, start_speaking)
     window = PotatoWindow(
         TurnEngine(model, gate, state),
         state,
@@ -290,6 +294,7 @@ def build(
         gate=gate,
         # Each tool's own fixed sentence, written in Potato's code.
         descriptions={tool.name: tool.description for tool in allowed},
+        voice=speaker,
     )
     return Application(window, state, audit, unloader, log_handler)
 

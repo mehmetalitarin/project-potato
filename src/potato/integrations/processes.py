@@ -1,11 +1,12 @@
 """The only code in Potato that may start another program (R3).
 
 Everything that starts a process goes through this file, so there is one
-place to review (T-TOOL-1, T-TOOL-3). It does two things:
+place to review (T-TOOL-1, T-TOOL-3). It does three things:
 
 - asks macOS to open an application that the launcher has already checked;
 - runs one of a fixed list of read-only system commands, the *probes*, and
-  returns what it printed.
+  returns what it printed;
+- reads a reply aloud with macOS's own voice (``say``).
 
 The rules every process follows here:
 
@@ -15,13 +16,17 @@ The rules every process follows here:
   path, and this module re-checks that it lies inside a standard
   applications folder. A probe is chosen by name from the list below; a
   caller cannot supply a program or an argument. No text from the model or
-  from external data is passed on.
+  from external data is ever an argument. Text to be spoken is cleaned,
+  capped and sent to ``say`` on its input instead, so it cannot be read as
+  an option and other users cannot see it in the list of processes.
 - **No shell.** Arguments go to the program as a list, so nothing in them is
   ever read as a command.
-- **Nothing in.** A program gets no input, and the environment holds only a
-  search path for the system's own programs. Error output is discarded,
-  except for the update check, whose answer arrives there.
-- **A time limit.** A program that does not finish in time is stopped.
+- **Nothing in.** A program gets no input, except the text ``say`` speaks,
+  and the environment holds only a search path for the system's own
+  programs. Error output is discarded, except for the update check, whose
+  answer arrives there.
+- **A time limit.** A program that does not finish in time is stopped. For
+  ``say``, the voice package stops it after a fixed time, or on sleep.
 - **An output cap.** A probe that prints more than its limit (a few
   kilobytes for a setting, more for the list of processes) is stopped, and
   what it printed is thrown away.
@@ -38,7 +43,9 @@ import contextlib
 import os
 import select
 import subprocess  # Allowed in this module only; see R3 in docs/architecture.md.
+import threading
 import time
+import unicodedata
 from collections.abc import Mapping, Sequence
 from enum import Enum
 from pathlib import Path
@@ -59,6 +66,11 @@ APPLICATION_FOLDERS: Final = (
 # The whole environment a started program receives. With no language set,
 # Apple's tools answer in their default wording, which the callers rely on.
 _ENVIRONMENT: Final = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
+
+SAY_PROGRAM: Final = "/usr/bin/say"
+# "-f -" reads the text to speak from the input, never from the arguments.
+SAY_COMMAND: Final = (SAY_PROGRAM, "-f", "-")
+MAX_SPOKEN_CHARACTERS: Final = 600
 
 PROBE_TIMEOUT_SECONDS: Final = 5.0
 MAX_PROBE_OUTPUT_BYTES: Final = 4096
@@ -245,3 +257,91 @@ def _run_bounded(
         with contextlib.suppress(subprocess.SubprocessError):
             process.wait(timeout=5.0)
     return b"".join(chunks)
+
+
+# --- Speaking ----------------------------------------------------------------
+
+
+def speakable(text: object) -> str:
+    """Clean ``text`` for ``say``: plain words, one line, capped in length.
+
+    Control, format and private characters and every kind of line or
+    paragraph break become spaces. Square brackets are removed, because
+    ``say`` reads ``[[ ... ]]`` as commands to itself (for example to change
+    the volume or the voice). Anything that is not text gives ``""``.
+    """
+    if not isinstance(text, str):
+        return ""
+    kept = []
+    for character in text:
+        category = unicodedata.category(character)
+        if character in "[]" or category[0] in "CZ":
+            kept.append(" ")
+        else:
+            kept.append(character)
+    words = " ".join("".join(kept).split())
+    if len(words) <= MAX_SPOKEN_CHARACTERS:
+        return words
+    cut = words[:MAX_SPOKEN_CHARACTERS]
+    space = cut.rfind(" ")
+    return cut[:space] if space > 0 else cut
+
+
+class Speech:
+    """``say`` reading one reply aloud. Can be waited for and stopped."""
+
+    def __init__(self, process: "subprocess.Popen[bytes]") -> None:
+        """Wrap a started ``say``. Only ``start_speaking`` makes one."""
+        self._process = process
+        self._lock = threading.Lock()
+
+    def wait(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` seconds. Whether ``say`` has finished."""
+        try:
+            self._process.wait(timeout=max(0.0, timeout))
+        except subprocess.TimeoutExpired:
+            return False
+        return True
+
+    def stop(self) -> None:
+        """Stop speaking now. Safe to call more than once, from any thread."""
+        with self._lock:
+            if self._process.poll() is None:
+                with contextlib.suppress(OSError):
+                    self._process.kill()
+            with contextlib.suppress(subprocess.SubprocessError):
+                self._process.wait(timeout=5.0)
+
+
+def start_speaking(text: object) -> Speech | None:
+    """Start reading ``text`` aloud, and return at once.
+
+    The text is cleaned by ``speakable`` and written to ``say``'s input,
+    never passed as an argument. Returns ``None`` if there is nothing to say
+    or ``say`` could not be started (for example, not on a Mac).
+    """
+    words = speakable(text)
+    if not words:
+        return None
+    try:
+        process = subprocess.Popen(  # noqa: S603 - fixed command, text on input, no shell
+            list(SAY_COMMAND),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=_ENVIRONMENT,
+            close_fds=True,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    speech = Speech(process)
+    try:
+        if process.stdin is None:
+            raise OSError("no input")
+        # At most a few kilobytes, well inside what a pipe holds.
+        process.stdin.write(words.encode("utf-8"))
+        process.stdin.close()
+    except (OSError, ValueError):
+        speech.stop()
+        return None
+    return speech
