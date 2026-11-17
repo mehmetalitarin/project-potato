@@ -140,6 +140,16 @@ def test_set_replace_and_remove(database: Database) -> None:
     assert database.holdings() == [Holding("AAPL", Decimal("1.5"))]
 
 
+def test_adding_a_new_holding_never_changes_an_existing_one(database: Database) -> None:
+    assert database.add_new_holding(Holding("MSFT", Decimal(3), Decimal(10))) is True
+    assert database.add_new_holding(Holding("MSFT", Decimal(4), Decimal(1))) is False
+    assert database.add_new_holding(Holding("AAPL", Decimal("1.5"))) is True
+    assert database.holdings() == [
+        Holding("AAPL", Decimal("1.5")),
+        Holding("MSFT", Decimal(3), Decimal(10)),
+    ]
+
+
 def test_quantities_are_exact(database: Database) -> None:
     quantity = Decimal("0.1") + Decimal("0.2")
     database.set_holding(Holding("VWRL", quantity))

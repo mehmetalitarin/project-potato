@@ -22,8 +22,16 @@ remembered message is marked by where it came from:
 
 Pass 1 sees only clean messages; pass 2 sees them all. So text planted in a
 tool result can never reach the model while it chooses a tool, in this turn
-or any later one. The cost: Potato cannot act on something only a tool result
-said; the user has to ask for it in their own words.
+or any later one.
+
+Each remembered message also records how its turn arrived. Pass 1 sees a
+message only if that turn could reach at least every tool the current turn
+can. So a spoken request, refused because voice cannot change anything,
+cannot be carried out by the next typed turn ("good morning") instead.
+
+The cost: Potato cannot act on something only a tool result said, or on
+something only said aloud, from a typed turn; the user has to ask for it in
+their own words, in the way that may reach it.
 
 The memory lives in this object only: it is never written to disk or to a
 log, it is limited in size, and it is forgotten whenever Potato leaves the
@@ -59,7 +67,7 @@ from potato.integrations.ollama import (
     Role,
 )
 from potato.security.approvals import ApprovalRequest
-from potato.security.gate import MESSAGES, Gate, GateResult, ReasonCode, RequestOrigin
+from potato.security.gate import MESSAGES, REACH, Gate, GateResult, ReasonCode, RequestOrigin
 
 _log = logging.getLogger(__name__)
 
@@ -174,10 +182,21 @@ def _clean_words(words: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _Remembered:
-    """One remembered message, and whether it may carry text from a tool."""
+    """One remembered message: where its turn came from, and whether it may carry tool text."""
 
     message: Message
     tainted: bool
+    origin: RequestOrigin
+
+
+def _may_guide(remembered: RequestOrigin, current: RequestOrigin) -> bool:
+    """Whether a message from a ``remembered`` turn may be in view when ``current`` chooses.
+
+    Only if the remembered turn could reach at least every tool the current
+    one can. Otherwise a request refused for a spoken turn could be carried
+    out by the next typed one.
+    """
+    return REACH[remembered] >= REACH[current]
 
 
 class TurnEngine:
@@ -212,16 +231,28 @@ class TurnEngine:
         if new is not AssistantState.ACTIVE:
             self.forget()
 
-    def _recall(self, *, clean_only: bool) -> list[Message]:
+    def _recall_for_choosing(self, origin: RequestOrigin) -> list[Message]:
+        """What pass 1 may see: clean messages from turns that could reach as much."""
         with self._memory_lock:
-            return [item.message for item in self._memory if not (clean_only and item.tainted)]
+            return [
+                item.message
+                for item in self._memory
+                if not item.tainted and _may_guide(item.origin, origin)
+            ]
 
-    def _remember(self, user: Message, reply: str, *, tainted: bool) -> None:
+    def _recall_everything(self) -> list[Message]:
+        """What pass 2 may see. Pass 2 cannot act, so it sees the whole conversation."""
+        with self._memory_lock:
+            return [item.message for item in self._memory]
+
+    def _remember(self, user: Message, reply: str, origin: RequestOrigin, *, tainted: bool) -> None:
         if len(reply) > MAX_REMEMBERED_REPLY_CHARACTERS:
             reply = reply[:MAX_REMEMBERED_REPLY_CHARACTERS] + " [cut short]"
         with self._memory_lock:
-            self._memory.append(_Remembered(user, tainted=False))
-            self._memory.append(_Remembered(Message(Role.ASSISTANT, reply), tainted=tainted))
+            self._memory.append(_Remembered(user, tainted=False, origin=origin))
+            self._memory.append(
+                _Remembered(Message(Role.ASSISTANT, reply), tainted=tainted, origin=origin)
+            )
             while len(self._memory) > MAX_REMEMBERED_MESSAGES or (
                 sum(len(item.message.content) for item in self._memory) > MAX_REMEMBERED_CHARACTERS
             ):
@@ -279,7 +310,7 @@ class TurnEngine:
         # Pass 1: choose. The prompt, the clean part of the conversation and
         # the user's words are everything the model sees.
         offered = self._gate.describe_tools(origin)
-        clean = self._recall(clean_only=True)
+        clean = self._recall_for_choosing(origin)
         try:
             choice = self._model.chat([Message(Role.SYSTEM, CHOOSE_PROMPT), *clean, user], offered)
         except OllamaUnavailableError:
@@ -293,7 +324,7 @@ class TurnEngine:
             # No tool was asked for. The model saw only clean messages, so its
             # answer is clean too.
             text = choice.text or TEXT_EMPTY_REPLY
-            self._remember(user, text, tainted=False)
+            self._remember(user, text, origin, tainted=False)
             return TurnResult(TurnStatus.ANSWERED, text)
         if len(choice.proposals) > MAX_CALLS_PER_TURN:
             return TurnResult(TurnStatus.REFUSED, TEXT_TOO_MANY_CALLS)
@@ -307,11 +338,11 @@ class TurnEngine:
             # Nothing ran, so there is nothing to summarise. The reply is
             # built from the gate's fixed sentences, not by the model.
             text = _refusal_text(outcomes)
-            self._remember(user, text, tainted=False)
+            self._remember(user, text, origin, tainted=False)
             return TurnResult(TurnStatus.REFUSED, text, outcomes)
 
         # Pass 2: reply. No tools are offered, and proposals are not read.
-        everything = self._recall(clean_only=False)
+        everything = self._recall_everything()
         messages = [Message(Role.SYSTEM, REPLY_PROMPT), *everything, user]
         messages.extend(Message(Role.TOOL, _as_data(outcome)) for outcome in outcomes)
         try:
@@ -320,12 +351,12 @@ class TurnEngine:
             # The tools have already run. Say so plainly; the interface
             # still has the results to show.
             _log.warning("A reply could not be written after the tools had run")
-            self._remember(user, TEXT_NO_SUMMARY, tainted=False)
+            self._remember(user, TEXT_NO_SUMMARY, origin, tainted=False)
             return TurnResult(TurnStatus.MODEL_ERROR, TEXT_NO_SUMMARY, outcomes)
         # This reply was written after reading tool results: it is tainted
         # and never shown to the model while it chooses a tool.
         text = reply.text or TEXT_EMPTY_REPLY
-        self._remember(user, text, tainted=True)
+        self._remember(user, text, origin, tainted=True)
         return TurnResult(TurnStatus.ANSWERED, text, outcomes)
 
 

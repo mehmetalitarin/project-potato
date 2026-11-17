@@ -11,7 +11,7 @@ import pytest
 
 from potato.core.turns import TurnEngine, TurnStatus
 from potato.integrations.ollama import Message, Reply
-from potato.modules.portfolio import MAX_HOLDINGS_LISTED, portfolio_tools
+from potato.modules.portfolio import ALREADY_RECORDED, MAX_HOLDINGS_LISTED, portfolio_tools
 from potato.security.approvals import ApprovalIssuer, create_approval_pair
 from potato.security.audit import AuditLog
 from potato.security.gate import MESSAGES, Gate, GateResult, ReasonCode, RequestOrigin
@@ -86,16 +86,14 @@ def test_an_empty_portfolio(gate: Gate) -> None:
     }
 
 
-def test_add_list_replace_and_remove(
-    gate: Gate, issuer: ApprovalIssuer, database_path: Path
-) -> None:
+def test_add_list_and_remove(gate: Gate, issuer: ApprovalIssuer, database_path: Path) -> None:
     added = _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=2.5, average_price=150.1)
     assert added.result == {
         "symbol": "AAPL",
         "quantity": "2.5",
         "average_price": "150.1",
         "cost": "375.25",
-        "replaced": False,
+        "added": True,
     }
     _call(gate, "portfolio_add_holding", symbol="BRK.B", quantity=1, average_price=400)
     assert _holdings(database_path) == [
@@ -103,12 +101,9 @@ def test_add_list_replace_and_remove(
         Holding("BRK.B", Decimal(1), Decimal(400)),
     ]
 
-    replaced = _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=3, average_price=160)
-    assert replaced.result["replaced"] is True  # type: ignore[index]
-
     summary = _call(gate, "portfolio_summary")
     assert summary.result["holdings"] == [  # type: ignore[index]
-        {"symbol": "AAPL", "quantity": "3", "average_price": "160", "cost": "480.00"},
+        {"symbol": "AAPL", "quantity": "2.5", "average_price": "150.1", "cost": "375.25"},
         {"symbol": "BRK.B", "quantity": "1", "average_price": "400", "cost": "400.00"},
     ]
 
@@ -121,6 +116,42 @@ def test_add_list_replace_and_remove(
         "removed": False,
     }
     assert _holdings(database_path) == [Holding("BRK.B", Decimal(1), Decimal(400))]
+
+
+@pytest.mark.parametrize(
+    ("quantity", "price"), [(0.00000001, 0.01), (2.5, 150.1), (10000, 1), (2.5, 160)]
+)
+def test_adding_never_changes_a_holding_already_recorded(
+    gate: Gate, database_path: Path, quantity: float, price: float
+) -> None:
+    # Overwriting destroys the old figures, so it must not be a way around
+    # the approval that removing needs.
+    _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=2.5, average_price=150.1)
+    again = _call(
+        gate, "portfolio_add_holding", symbol="AAPL", quantity=quantity, average_price=price
+    )
+    assert again.ok
+    assert again.result == {
+        "symbol": "AAPL",
+        "added": False,
+        "reason": "already_recorded",
+        "note": ALREADY_RECORDED,
+    }
+    assert _holdings(database_path) == [Holding("AAPL", Decimal("2.5"), Decimal("150.1"))]
+
+
+def test_a_holding_can_be_changed_by_removing_it_with_approval_then_adding_it(
+    gate: Gate, issuer: ApprovalIssuer, database_path: Path
+) -> None:
+    _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=2.5, average_price=150.1)
+    assert _approved(gate, issuer, "portfolio_remove_holding", symbol="AAPL").ok
+    assert _call(gate, "portfolio_add_holding", symbol="AAPL", quantity=3, average_price=160).ok
+    assert _holdings(database_path) == [Holding("AAPL", Decimal(3), Decimal(160))]
+
+
+def test_the_already_recorded_note_is_fixed_text() -> None:
+    assert "remove it first" in ALREADY_RECORDED
+    assert "{" not in ALREADY_RECORDED
 
 
 def test_amounts_stay_exact(gate: Gate, database_path: Path) -> None:

@@ -90,8 +90,12 @@ message is marked by where it came from:
 | A fixed sentence written in Potato's code | Clean | Yes | Yes |
 | A reply written in pass 1, from clean messages only | Clean | Yes | Yes |
 | A reply written in pass 2, after reading tool results | **Tainted** | **No** | Yes |
+| Anything from a spoken turn, when the current turn is typed or from the interface | Clean, but from a turn with less reach | **No** | Yes |
 
 So tool results, and every reply built from them, never reach a later pass 1.
+And a pass 1 sees a remembered message only if its turn could reach at least
+every tool the current turn can: a spoken request that voice was not allowed
+to carry out cannot be carried out by the next typed turn instead.
 Injected text cannot wait a turn and then choose a tool. The cost is that
 Potato cannot act on something only a tool result said: the user has to ask
 in their own words. The memory is held in the turn engine only, never written

@@ -884,3 +884,17 @@ def test_the_gates_refusal_after_approval_is_a_fixed_sentence(flow: Flow, world:
     flow.approve()
     assert CANARY not in "\n".join(flow.lines())
     assert flow.window.entry.isEnabled()
+
+
+def test_a_question_asked_while_in_the_bubble_brings_the_window_back(
+    flow: Flow, world: World
+) -> None:
+    flow.window.show()
+    flow.window.show_bubble()
+    assert not flow.window.isVisible()
+    flow.ask(REMOVE)
+    assert flow.window.isVisible()
+    assert not flow.window.bubble.isVisible()
+    assert flow.dialog() is not None
+    flow.deny()
+    assert world.ran == []

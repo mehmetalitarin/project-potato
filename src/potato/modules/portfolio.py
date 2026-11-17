@@ -3,8 +3,9 @@
 Three tools, as listed in ``docs/permissions.md``:
 
 - ``portfolio_summary`` (low risk): every holding, with what it cost.
-- ``portfolio_add_holding`` (medium risk): record a holding, or replace the
-  one already recorded for that symbol.
+- ``portfolio_add_holding`` (medium risk): record a new holding. It never
+  changes one that is already recorded: replacing a holding destroys the old
+  figures, so that has to go through removing it, which needs approval.
 - ``portfolio_remove_holding`` (sensitive): remove a holding.
 
 Medium risk means voice cannot change the portfolio: only typed requests and
@@ -82,6 +83,12 @@ def _describe(holding: Holding) -> dict[str, object]:
     }
 
 
+ALREADY_RECORDED: Final = (
+    "A holding for this symbol is already recorded, and it was not changed. To change "
+    "it, remove it first (that needs your approval), then add it again."
+)
+
+
 def portfolio_tools(database_path: Path) -> tuple[ToolDefinition, ...]:
     """Return the three portfolio tools, working on the database at ``database_path``."""
 
@@ -101,9 +108,15 @@ def portfolio_tools(database_path: Path) -> tuple[ToolDefinition, ...]:
             Decimal(str(arguments["average_price"])),
         )
         with Database(database_path) as database:
-            replaced = any(h.symbol == holding.symbol for h in database.holdings())
-            database.set_holding(holding)
-        return {**_describe(holding), "replaced": replaced}
+            added = database.add_new_holding(holding)
+        if not added:
+            return {
+                "symbol": holding.symbol,
+                "added": False,
+                "reason": "already_recorded",
+                "note": ALREADY_RECORDED,
+            }
+        return {**_describe(holding), "added": True}
 
     def remove(arguments: Mapping[str, ArgumentValue]) -> Mapping[str, object]:
         symbol = str(arguments["symbol"])
@@ -129,8 +142,8 @@ def portfolio_tools(database_path: Path) -> tuple[ToolDefinition, ...]:
             },
             handler=add,
             description=(
-                "Record a holding: ticker symbol in capitals, number of units and average "
-                "price paid per unit. Replaces any holding already recorded for that symbol."
+                "Record a new holding: ticker symbol in capitals, number of units and "
+                "average price paid per unit. Does not change a holding already recorded."
             ),
         ),
         ToolDefinition(
