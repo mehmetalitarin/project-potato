@@ -219,7 +219,11 @@ person clicks. What it guarantees:
   rate-limited and audited, and shows their own data formatted by code. The
   model is not involved. It asks for every entry and offers "Show all";
   an answer that long is replaced by a fixed note before the model could
-  ever read it.
+  ever read it. While it is open it refreshes itself every 30 seconds, well
+  inside the gate's limits; the update check, which contacts Apple, runs
+  only when its button is pressed. It works while Potato is asleep, because
+  opening it is the user's own click. Its style sheet is fixed text, and
+  tool data only ever reaches the screen as plain-text labels and cells.
 - **No way out.** No part of Potato may use Qt to open links or files in
   other applications, start programs or run scripts (`tests/test_architecture.py`).
 
