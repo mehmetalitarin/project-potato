@@ -8,8 +8,11 @@ from typing import Any
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
+import potato.modules.network_overview as network_module
+import potato.modules.process_overview as process_module
+import potato.ui.dashboard as dashboard_module
 from potato.core.state import StateManager
 from potato.core.turns import TurnResult, TurnStatus
 from potato.integrations.processes import Probe
@@ -25,6 +28,8 @@ from potato.ui.dashboard import (
     TEXT_FAILED,
     TEXT_LOADING,
     TEXT_NOT_LOADED,
+    TEXT_SHOW_ALL,
+    TEXT_SHOW_LESS,
     TEXT_UPDATES_LOADING,
     UPDATE_TOOL,
     SecurityDashboard,
@@ -319,3 +324,85 @@ def test_without_a_gate_the_dashboard_cannot_be_opened(app: QApplication) -> Non
         assert window.dashboard is None
     finally:
         window.close()
+
+
+# --- Show all ----------------------------------------------------------------
+
+
+def test_the_dashboard_asks_for_exactly_the_tools_maximums() -> None:
+    assert dashboard_module.PROCESS_LIMIT == process_module.MAX_LISTED
+    assert dashboard_module.NETWORK_LIMIT == network_module.MAX_LISTED
+
+
+def test_the_dashboard_asks_for_every_entry(app: QApplication, world: World) -> None:
+    dashboard = SecurityDashboard(world.gate, start=lambda work: work())
+    dashboard.refresh()
+    executed = [r["data"] for r in world.records() if r["event"] == "tool_executed"]
+    assert [r["tool"] for r in executed] == list(REFRESH_TOOLS)
+
+
+def test_show_all_lists_every_program_and_show_less_goes_back(
+    app: QApplication, world: World
+) -> None:
+    dashboard = SecurityDashboard(world.gate, start=lambda work: work())
+    button = dashboard.show_all_buttons["process_overview"]
+    assert not button.isEnabled()  # Nothing to show yet.
+    dashboard.refresh()
+    assert button.isEnabled()
+    short = dashboard.sections["process_overview"].text()
+    assert "Every program" not in short
+    button.click()
+    full = dashboard.sections["process_overview"].text()
+    assert "Every program" in full
+    assert "launchd  0.1%  21 MB  system" in full
+    assert "Safari  12.0%  500 MB  you" in full
+    assert button.text() == TEXT_SHOW_LESS
+    button.click()
+    assert dashboard.sections["process_overview"].text() == short
+    assert button.text() == TEXT_SHOW_ALL
+
+
+def test_show_all_lists_every_network_entry(app: QApplication, world: World) -> None:
+    dashboard = SecurityDashboard(world.gate, start=lambda work: work())
+    dashboard.refresh()
+    dashboard.show_all_buttons["network_overview"].click()
+    full = dashboard.sections["network_overview"].text()
+    assert "Programs with connections open" in full
+    assert "Spotify  1 open  (0, 0, 1)" in full
+    assert "203.0.113.9" not in full
+
+
+def test_show_all_stays_on_through_a_refresh(app: QApplication, world: World) -> None:
+    dashboard = SecurityDashboard(world.gate, start=lambda work: work())
+    dashboard.refresh()
+    dashboard.show_all_buttons["process_overview"].click()
+    dashboard.refresh()
+    assert "Every program" in dashboard.sections["process_overview"].text()
+
+
+def test_show_all_is_disabled_when_a_check_fails(app: QApplication) -> None:
+    class Broken:
+        def submit(self, proposal: object, origin: RequestOrigin, approval: object = None) -> Any:
+            return None
+
+    dashboard = SecurityDashboard(Broken(), start=lambda work: work())
+    dashboard.refresh()
+    assert not dashboard.show_all_buttons["process_overview"].isEnabled()
+    dashboard.toggle_full("security_posture")  # Not expandable: ignored.
+
+
+def test_hundreds_of_programs_are_listed_and_the_dashboard_scrolls(
+    app: QApplication, tmp_path: Path
+) -> None:
+    listing = "".join(
+        f"{1000 + n:5d}  {n % 90}.0  {1024 * (n + 1):6d}   501 app{n}\n" for n in range(700)
+    )
+    with AuditLog(tmp_path / "audit.jsonl", Redactor()) as audit:
+        gate = Gate(process_overview_tools(lambda probe: listing, lambda: 501), audit)
+        dashboard = SecurityDashboard(gate, start=lambda work: work())
+        dashboard._run(("process_overview",), TEXT_LOADING)
+    dashboard.toggle_full("process_overview")
+    text = dashboard.sections["process_overview"].text()
+    assert "700 programs running" in text
+    assert sum(1 for line in text.splitlines() if line.startswith("  app")) == 700
+    assert dashboard.findChildren(QScrollArea)

@@ -260,6 +260,18 @@ def test_listening_is_capped_with_reachable_ones_first() -> None:
     assert [entry["port"] for entry in result["listening"][1:]] == list(range(1001, 1010))
 
 
+def test_the_limit_chooses_how_many_are_listed() -> None:
+    sockets = [sock(fd, f"127.0.0.1:{1000 + fd}", state="LISTEN") for fd in range(1, 41)]
+    listing = program(5, "x", *sockets)
+    short: Any = read_overview(lambda probe: listing)
+    three: Any = read_overview(lambda probe: listing, 3)
+    assert len(short["listening"]) == MAX_LISTENING
+    assert len(three["listening"]) == 3
+    full: Any = read_overview(lambda probe: listing, 500)
+    assert len(full["listening"]) == 40
+    assert full["listening_total"] == 40
+
+
 def test_connected_programs_are_capped_busiest_first() -> None:
     listing = "".join(
         program(pid, f"app{pid}", *[sock(fd, f"10.0.0.2:{fd}->1.1.1.1:443", state="ESTABLISHED")
@@ -516,22 +528,32 @@ def gate(tmp_path: Path) -> Iterator[Gate]:
 
 @pytest.mark.parametrize("origin", list(RequestOrigin))
 def test_every_origin_can_read_the_overview(gate: Gate, origin: RequestOrigin) -> None:
-    result = gate.submit({"tool": "network_overview", "arguments": {}}, origin)
+    result = gate.submit({"tool": "network_overview", "arguments": {"limit": 10}}, origin)
     assert result.ok
     assert result.result is not None
     assert result.result["listening_total"] == 2
 
 
 @pytest.mark.parametrize(
-    "arguments", [{"host": "8.8.8.8"}, {"port": 22}, {"scan": True}, {"resolve": True}]
+    "arguments",
+    [
+        {},
+        {"host": "8.8.8.8"},
+        {"limit": 10, "port": 22},
+        {"limit": 0},
+        {"limit": 501},
+        {"limit": "10"},
+        {"limit": True},
+        {"scan": True, "limit": 10},
+    ],
 )
-def test_the_tool_takes_no_arguments(gate: Gate, arguments: dict[str, object]) -> None:
+def test_the_tool_takes_only_a_limit(gate: Gate, arguments: dict[str, object]) -> None:
     result = gate.submit({"tool": "network_overview", "arguments": arguments}, RequestOrigin.TYPED)
     assert result.reason is ReasonCode.INVALID_ARGUMENTS
 
 
 def test_reading_is_rate_limited(gate: Gate) -> None:
-    proposal = {"tool": "network_overview", "arguments": {}}
+    proposal = {"tool": "network_overview", "arguments": {"limit": 10}}
     results = [gate.submit(proposal, RequestOrigin.TYPED).ok for _ in range(7)]
     assert results == [True] * 5 + [False] * 2
 
@@ -540,7 +562,9 @@ def test_nothing_found_reaches_the_audit_log(tmp_path: Path) -> None:
     path = tmp_path / "logs" / "audit.jsonl"
     with AuditLog(path, Redactor()) as audit:
         gate = Gate(network_overview_tools(lambda probe: LISTING), audit)
-        assert gate.submit({"tool": "network_overview", "arguments": {}}, RequestOrigin.TYPED).ok
+        assert gate.submit(
+            {"tool": "network_overview", "arguments": {"limit": 10}}, RequestOrigin.TYPED
+        ).ok
     text = path.read_text(encoding="utf-8")
     for found in ("Safari", "Spotify", "11434", "8000"):
         assert found not in text
@@ -598,3 +622,10 @@ def test_the_tool_is_in_the_documented_table_with_the_same_risk() -> None:
     rows = dict(re.findall(r"^\| `([a-z_]+)` \|.*\| (Low|Medium|Sensitive) \|$", section, re.M))
     for tool in network_overview_tools():
         assert rows.get(tool.name, "").lower() == tool.risk.value
+
+
+@pytest.mark.parametrize(("limit", "listed"), [(0, 1), (-5, 1), (10**9, 500)])
+def test_the_limit_is_kept_in_range_even_when_called_directly(limit: int, listed: int) -> None:
+    sockets = [sock(fd, f"127.0.0.1:{1000 + fd}", state="LISTEN") for fd in range(1, 600)]
+    result: Any = read_overview(lambda probe: program(5, "x", *sockets), limit)
+    assert len(result["listening"]) == listed

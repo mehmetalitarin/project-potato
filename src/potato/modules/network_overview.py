@@ -30,10 +30,12 @@ from typing import Final
 
 from potato.integrations.processes import Probe, run_probe
 from potato.modules.process_overview import display_name
-from potato.security.tools import ArgumentValue, RiskLevel, ToolDefinition
+from potato.security.tools import ArgumentValue, IntegerField, RiskLevel, ToolDefinition
 
 MAX_LISTENING: Final = 10
 MAX_CONNECTED_PROGRAMS: Final = 8
+# The most entries one answer lists, for the dashboard. Totals are counted in full.
+MAX_LISTED: Final = 500
 
 THIS_MAC: Final = "this_mac"
 LOCAL_NETWORK: Final = "local_network"
@@ -256,8 +258,16 @@ def _connected(sockets: list[Socket]) -> Iterator[tuple[Socket, str]]:
             yield sock, sock.remote_place
 
 
-def read_overview(runner: Callable[[Probe], str | None] = run_probe) -> dict[str, object]:
-    """Read the network list and return an overview as plain data."""
+def read_overview(
+    runner: Callable[[Probe], str | None] = run_probe, limit: int | None = None
+) -> dict[str, object]:
+    """Read the network list and return an overview as plain data.
+
+    Without ``limit``, the usual short lists. With it, up to ``limit`` entries
+    in each list; the dashboard asks for all of them.
+    """
+    listening_limit = MAX_LISTENING if limit is None else max(1, min(MAX_LISTED, limit))
+    connected_limit = MAX_CONNECTED_PROGRAMS if limit is None else listening_limit
     output = runner(Probe.NETWORK)
     if type(output) is not str:
         return {"summary": SUMMARIES["unavailable"], "partial": True, "note": NOTE}
@@ -321,10 +331,10 @@ def read_overview(runner: Callable[[Probe], str | None] = run_probe) -> dict[str
         summary = "this_mac_only"
     return {
         "summary": SUMMARIES[summary],
-        "listening": listening[:MAX_LISTENING],
+        "listening": listening[:listening_limit],
         "listening_total": len(listening),
         "connections": totals,
-        "connected_programs": connected[:MAX_CONNECTED_PROGRAMS],
+        "connected_programs": connected[:connected_limit],
         "connected_programs_total": len(connected),
         "open_udp_sockets": len(open_udp),
         "other_sockets": other,
@@ -345,17 +355,19 @@ def network_overview_tools(
     """
 
     def handle(arguments: Mapping[str, ArgumentValue]) -> Mapping[str, object]:
-        return read_overview(runner)
+        limit = arguments["limit"]
+        return read_overview(runner, limit if type(limit) is int else MAX_LISTENING)
 
     return (
         ToolDefinition(
             name="network_overview",
             risk=RiskLevel.LOW,
-            arguments={},
+            arguments={"limit": IntegerField(1, MAX_LISTED)},
             handler=handle,
             description=(
                 "Report which of your programs accept network connections, and how many "
-                "connections each has open. Shows no remote addresses."
+                "connections each has open. Shows no remote addresses. limit: how many "
+                "programs to list; use 10."
             ),
             timeout_seconds=15.0,
             max_calls=5,

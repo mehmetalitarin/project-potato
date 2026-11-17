@@ -41,7 +41,7 @@ Each guarantee has a stable ID. Tests name the guarantee they prove.
 | P11 | **No action without a record.** The decision is written to the audit log before the tool runs. If the record cannot be written, the tool does not run. | T-DATA-3 |
 | P12 | **Decisions are not model fields.** Risk level, origin and approval are never read from the model's output. | T-LLM-2, T-VOICE-3 |
 | P13 | **Safe refusals.** A denial returns a fixed message and a reason code. It never contains a secret or internal detail. | T-DATA-1 |
-| P14 | **Results are data.** Tool output is typed, size-capped and summarised with tools switched off. | T-LLM-1, T-NET-2 |
+| P14 | **Results are data.** Tool output is typed, size-capped (256 KiB, enough for the dashboard's full lists) and summarised with tools switched off. The model reads at most 4,000 characters of any result; a longer one is replaced by a fixed note. | T-LLM-1, T-NET-2 |
 
 ## The checks, in order
 
@@ -103,8 +103,8 @@ tool, and a tool that is not in this table must not be in the code.
 | `calendar_upcoming` | Lists upcoming events | Number of days, bounded | Low |
 | `homework_deadlines` | Lists upcoming deadlines | Number of days, bounded | Low |
 | `security_posture` | Reads whether disk encryption, the firewall, Gatekeeper and System Integrity Protection are on; cannot change them | None | Low |
-| `process_overview` | Counts running programs and lists those using the most processor and memory; never reads command lines | None | Low |
-| `network_overview` | Lists your programs that accept connections, and counts open connections by kind; never shows remote addresses | None | Low |
+| `process_overview` | Counts running programs and lists those using the most processor and memory; never reads command lines | How many to list (1 to 1,000) | Low |
+| `network_overview` | Lists your programs that accept connections, and counts open connections by kind; never shows remote addresses | How many to list (1 to 500) | Low |
 | `analyse_link` | Examines a link's text for signs of phishing | The link as text, length-capped; never opened | Low |
 | `check_security_updates` | Asks Apple's tool whether updates are available; lists only, never installs | None | Medium |
 | `dependency_scan` | Reports known vulnerabilities in Potato's own packages | None | Medium |

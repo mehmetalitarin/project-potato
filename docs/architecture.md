@@ -217,7 +217,9 @@ person clicks. What it guarantees:
 - **The dashboard goes through the gate.** The security dashboard runs its
   read-only tools through the gate as `interface`, so each run is checked,
   rate-limited and audited, and shows their own data formatted by code. The
-  model is not involved.
+  model is not involved. It asks for every entry and offers "Show all";
+  an answer that long is replaced by a fixed note before the model could
+  ever read it.
 - **No way out.** No part of Potato may use Qt to open links or files in
   other applications, start programs or run scripts (`tests/test_architecture.py`).
 

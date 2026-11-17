@@ -34,9 +34,11 @@ from types import MappingProxyType
 from typing import Final
 
 from potato.integrations.processes import Probe, run_probe
-from potato.security.tools import ArgumentValue, RiskLevel, ToolDefinition
+from potato.security.tools import ArgumentValue, IntegerField, RiskLevel, ToolDefinition
 
 TOP_COUNT: Final = 5
+# The most programs one answer lists. The total is always counted in full.
+MAX_LISTED: Final = 1000
 # A share of one processor core, so a busy program on several cores can
 # show more than 100.
 PROCESSOR_HIGH_PERCENT: Final = 90.0
@@ -166,9 +168,16 @@ CurrentUser = Callable[[], int]
 
 
 def read_overview(
-    runner: ProbeRunner = run_probe, current_user: CurrentUser = os.getuid
+    runner: ProbeRunner = run_probe,
+    current_user: CurrentUser = os.getuid,
+    limit: int = TOP_COUNT,
 ) -> dict[str, object]:
-    """Read the process list and return an overview as plain data."""
+    """Read the process list and return an overview as plain data.
+
+    ``top_processor`` lists up to ``limit`` programs, busiest first; the
+    dashboard asks for all of them. ``top_memory`` always lists the top five.
+    """
+    limit = max(1, min(MAX_LISTED, limit))
     output = runner(Probe.PROCESSES)
     rows, unreadable = parse_listing(output, current_user()) if type(output) is str else ([], 0)
     if not rows:
@@ -191,7 +200,7 @@ def read_overview(
         "summary": SUMMARIES["heavy" if heavy else "normal"],
         "total": len(rows),
         "owners": owners,
-        "top_processor": [_entry(row) for row in by_processor[:TOP_COUNT]],
+        "top_processor": [_entry(row) for row in by_processor[:limit]],
         "top_memory": [_entry(row) for row in by_memory[:TOP_COUNT]],
         "unusual_names": unusual,
         "unreadable_lines": unreadable,
@@ -209,17 +218,18 @@ def process_overview_tools(
     """
 
     def handle(arguments: Mapping[str, ArgumentValue]) -> Mapping[str, object]:
-        return read_overview(runner, current_user)
+        limit = arguments["limit"]
+        return read_overview(runner, current_user, limit if type(limit) is int else TOP_COUNT)
 
     return (
         ToolDefinition(
             name="process_overview",
             risk=RiskLevel.LOW,
-            arguments={},
+            arguments={"limit": IntegerField(1, MAX_LISTED)},
             handler=handle,
             description=(
                 "Report how many programs are running on this Mac and which use the most "
-                "processor and memory."
+                "processor and memory. limit: how many programs to list; use 5."
             ),
             timeout_seconds=15.0,
             max_calls=5,

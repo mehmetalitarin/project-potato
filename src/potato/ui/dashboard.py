@@ -13,6 +13,10 @@ network overviews and, on request, the update check. How it stays safe:
 - **Plain text only.** Program names are the only text that did not come
   from Potato's code, and they are shown through ``displayable``.
 - **One refresh at a time, off the main thread.**
+- **Everything, on request.** The dashboard asks the tools for every entry
+  (up to their limits) and shows a short summary; "Show all" lists the rest.
+  Such a long answer never reaches the model: anything longer than the model
+  may read is replaced by a fixed note (``core/turns.py``).
 """
 
 import threading
@@ -26,6 +30,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -36,11 +41,23 @@ from potato.ui.text import displayable
 TITLE: Final = "Potato: security dashboard"
 REFRESH_TOOLS: Final = ("security_posture", "process_overview", "network_overview")
 UPDATE_TOOL: Final = "check_security_updates"
+# The dashboard asks for every entry; the summary shows a few, "Show all" the
+# rest. These are the tools' own maximums; a test checks they match.
+PROCESS_LIMIT: Final = 1000
+NETWORK_LIMIT: Final = 500
+ARGUMENTS: Final[Mapping[str, Mapping[str, int]]] = {
+    "process_overview": {"limit": PROCESS_LIMIT},
+    "network_overview": {"limit": NETWORK_LIMIT},
+}
+EXPANDABLE: Final = frozenset({"process_overview", "network_overview"})
+SHORT_LIST: Final = 3
 
 TEXT_NOT_LOADED: Final = "Not checked yet. Press Refresh."
 TEXT_LOADING: Final = "Checking..."
 TEXT_UPDATES_LOADING: Final = "Asking Apple's update tool. This can take a minute..."
 TEXT_FAILED: Final = "This could not be checked just now."
+TEXT_SHOW_ALL: Final = "Show all"
+TEXT_SHOW_LESS: Final = "Show less"
 STATE_MARKS: Final = {"on": "ON ", "off": "OFF", "unknown": " ? "}
 CHECK_NAMES: Final = {
     "disk_encryption": "Disk encryption (FileVault)",
@@ -82,7 +99,7 @@ def _items(value: object) -> list[Mapping[str, object]]:
     return [item for item in value if isinstance(item, Mapping)]
 
 
-def format_posture(data: Mapping[str, object]) -> list[str]:
+def format_posture(data: Mapping[str, object], full: bool = False) -> list[str]:
     """Lines for the posture section."""
     lines = [_text(data.get("summary"))]
     for check in _items(data.get("checks")):
@@ -92,8 +109,8 @@ def format_posture(data: Mapping[str, object]) -> list[str]:
     return lines
 
 
-def format_processes(data: Mapping[str, object]) -> list[str]:
-    """Lines for the process section."""
+def format_processes(data: Mapping[str, object], full: bool = False) -> list[str]:
+    """Lines for the process section. ``full`` lists every program returned."""
     lines = [_text(data.get("summary"))]
     if "total" not in data:
         return lines
@@ -103,27 +120,37 @@ def format_processes(data: Mapping[str, object]) -> list[str]:
         f"{_number(data.get('total'))} programs running: {_number(owners.get('you'))} yours, "
         f"{_number(owners.get('system'))} system, {_number(owners.get('another_user'))} other users"
     )
+    if full:
+        lines.append("Every program, busiest first (processor, memory, owner):")
+        for entry in _items(data.get("top_processor")):
+            name = displayable(_text(entry.get("name")), 40)
+            percent = entry.get("processor_percent")
+            shown = f"{percent:.1f}" if type(percent) is float else "?"
+            owner = _text(entry.get("owner")).replace("_", " ")
+            megabytes = _number(entry.get("memory_megabytes"))
+            lines.append(f"  {name}  {shown}%  {megabytes} MB  {owner}")
+        return lines
     lines.append("Most processor:")
-    for entry in _items(data.get("top_processor"))[:3]:
+    for entry in _items(data.get("top_processor"))[:SHORT_LIST]:
         name = displayable(_text(entry.get("name")), 40)
         percent = entry.get("processor_percent")
         shown = f"{percent:.1f}" if type(percent) is float else "?"
         lines.append(f"  {name}  {shown}%")
     lines.append("Most memory:")
-    for entry in _items(data.get("top_memory"))[:3]:
+    for entry in _items(data.get("top_memory"))[:SHORT_LIST]:
         name = displayable(_text(entry.get("name")), 40)
         lines.append(f"  {name}  {_number(entry.get('memory_megabytes'))} MB")
     return lines
 
 
-def format_network(data: Mapping[str, object]) -> list[str]:
-    """Lines for the network section."""
+def format_network(data: Mapping[str, object], full: bool = False) -> list[str]:
+    """Lines for the network section. ``full`` lists every entry returned."""
     lines = [_text(data.get("summary"))]
     if "listening" not in data:
         return lines
     listening = _items(data.get("listening"))
     lines.append(f"Accepting connections: {_number(data.get('listening_total'))}")
-    for entry in listening[:5]:
+    for entry in listening if full else listening[:5]:
         name = displayable(_text(entry.get("name")), 40)
         reach = "other devices" if entry.get("reach") == "network" else "this Mac only"
         lines.append(f"  {name}  port {_number(entry.get('port'))}  ({reach})")
@@ -133,6 +160,12 @@ def format_network(data: Mapping[str, object]) -> list[str]:
         f"{_number(connections.get(key))} {label}" for key, label in PLACE_NAMES.items()
     )
     lines.append(f"Open connections: {counts}")
+    if full:
+        lines.append("Programs with connections open (this Mac, local network, internet):")
+        for entry in _items(data.get("connected_programs")):
+            name = displayable(_text(entry.get("name")), 40)
+            places = ", ".join(str(_number(entry.get(key))) for key in PLACE_NAMES)
+            lines.append(f"  {name}  {_number(entry.get('total'))} open  ({places})")
     warnings = data.get("warnings")
     if isinstance(warnings, list):
         lines.extend(_text(warning) for warning in warnings)
@@ -140,7 +173,7 @@ def format_network(data: Mapping[str, object]) -> list[str]:
     return lines
 
 
-def format_updates(data: Mapping[str, object]) -> list[str]:
+def format_updates(data: Mapping[str, object], full: bool = False) -> list[str]:
     """Lines for the updates section."""
     lines = [_text(data.get("summary"))]
     for entry in _items(data.get("updates")):
@@ -151,7 +184,7 @@ def format_updates(data: Mapping[str, object]) -> list[str]:
     return lines
 
 
-FORMATTERS: Final[dict[str, Callable[[Mapping[str, object]], list[str]]]] = {
+FORMATTERS: Final[dict[str, Callable[[Mapping[str, object], bool], list[str]]]] = {
     "security_posture": format_posture,
     "process_overview": format_processes,
     "network_overview": format_network,
@@ -159,7 +192,7 @@ FORMATTERS: Final[dict[str, Callable[[Mapping[str, object]], list[str]]]] = {
 }
 
 
-def describe_result(tool: str, result: object) -> str:
+def describe_result(tool: str, result: object, full: bool = False) -> str:
     """The text for one section, from the gate's result. Never raises."""
     if not isinstance(result, GateResult):
         return TEXT_FAILED
@@ -167,7 +200,7 @@ def describe_result(tool: str, result: object) -> str:
         reason = result.reason
         return MESSAGES.get(reason, TEXT_FAILED) if reason is not None else TEXT_FAILED
     try:
-        lines = FORMATTERS[tool](result.result)
+        lines = FORMATTERS[tool](result.result, full)
     except Exception:
         return TEXT_FAILED
     return "\n".join(line for line in lines if line)
@@ -199,11 +232,15 @@ class SecurityDashboard(QDialog):
         self._gate = gate
         self._start = start
         self._running: set[str] = set()
+        self._results: dict[str, object] = {}
+        self._full: set[str] = set()
+        self.show_all_buttons: dict[str, QPushButton] = {}
         self._bridge = _Bridge()
         self._bridge.finished.connect(self._show)
 
         self.sections: dict[str, QLabel] = {}
-        layout = QVBoxLayout()
+        content = QWidget()
+        layout = QVBoxLayout(content)
         for tool, heading in (
             ("security_posture", "Protections"),
             ("process_overview", "Programs"),
@@ -218,6 +255,8 @@ class SecurityDashboard(QDialog):
             label.setOpenExternalLinks(False)
             label.setWordWrap(True)
             inner.addWidget(label)
+            if tool in EXPANDABLE:
+                inner.addWidget(self._show_all_button(tool))
             box.setLayout(inner)
             layout.addWidget(box)
             self.sections[tool] = label
@@ -230,9 +269,36 @@ class SecurityDashboard(QDialog):
         buttons.addWidget(self.refresh_button)
         buttons.addWidget(self.updates_button)
         buttons.addStretch(1)
-        layout.addLayout(buttons)
-        self.setLayout(layout)
-        self.resize(520, 640)
+        layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        outer = QVBoxLayout()
+        outer.addWidget(scroll, 1)
+        outer.addLayout(buttons)
+        self.setLayout(outer)
+        self.resize(560, 700)
+
+    def _show_all_button(self, tool: str) -> QPushButton:
+        button = QPushButton(TEXT_SHOW_ALL)
+        button.setEnabled(False)
+        button.clicked.connect(lambda: self.toggle_full(tool))
+        self.show_all_buttons[tool] = button
+        return button
+
+    def toggle_full(self, tool: str) -> None:
+        """Switch a section between the short summary and every entry."""
+        if tool not in EXPANDABLE:
+            return
+        if tool in self._full:
+            self._full.discard(tool)
+        else:
+            self._full.add(tool)
+        self.show_all_buttons[tool].setText(TEXT_SHOW_LESS if tool in self._full else TEXT_SHOW_ALL)
+        if tool in self._results:
+            self.sections[tool].setText(
+                describe_result(tool, self._results[tool], tool in self._full)
+            )
 
     def refresh(self) -> None:
         """Run the three quick read-only tools."""
@@ -256,8 +322,9 @@ class SecurityDashboard(QDialog):
             # Runs on a worker thread: touches no widget.
             for tool in waiting:
                 try:
+                    arguments = dict(ARGUMENTS.get(tool, {}))
                     result: object = gate.submit(
-                        {"tool": tool, "arguments": {}}, RequestOrigin.INTERFACE
+                        {"tool": tool, "arguments": arguments}, RequestOrigin.INTERFACE
                     )
                 except Exception:
                     result = None
@@ -269,7 +336,10 @@ class SecurityDashboard(QDialog):
         if tool not in self.sections:
             return
         self._running.discard(tool)
-        self.sections[tool].setText(describe_result(tool, result))
+        self._results[tool] = result
+        self.sections[tool].setText(describe_result(tool, result, tool in self._full))
+        if tool in self.show_all_buttons:
+            self.show_all_buttons[tool].setEnabled(isinstance(result, GateResult) and result.ok)
         self._buttons()
 
     def _buttons(self) -> None:
