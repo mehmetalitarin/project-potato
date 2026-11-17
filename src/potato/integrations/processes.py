@@ -71,6 +71,13 @@ SAY_PROGRAM: Final = "/usr/bin/say"
 # "-f -" reads the text to speak from the input, never from the arguments.
 SAY_COMMAND: Final = (SAY_PROGRAM, "-f", "-")
 MAX_SPOKEN_CHARACTERS: Final = 600
+# Symbols that are read well and kept: say reads "20\u00b0" as "20 degrees".
+_SPOKEN_SYMBOLS: Final = frozenset("\u00b0")
+# Pieces that make up emojis without being symbols themselves: variation
+# selectors, the keycap mark and the skin tones.
+_EMOJI_PARTS: Final = frozenset(
+    "\ufe0e\ufe0f\u20e3" + "".join(chr(code) for code in range(0x1F3FB, 0x1F400))
+)
 
 PROBE_TIMEOUT_SECONDS: Final = 5.0
 MAX_PROBE_OUTPUT_BYTES: Final = 4096
@@ -266,7 +273,8 @@ def speakable(text: object) -> str:
     """Clean ``text`` for ``say``: plain words, one line, capped in length.
 
     Control, format and private characters and every kind of line or
-    paragraph break become spaces. Square brackets are removed, because
+    paragraph break become spaces. Emojis and other pictures are dropped, so
+    they are not read out by name. Square brackets are removed, because
     ``say`` reads ``[[ ... ]]`` as commands to itself (for example to change
     the volume or the voice). Anything that is not text gives ``""``.
     """
@@ -275,7 +283,13 @@ def speakable(text: object) -> str:
     kept = []
     for character in text:
         category = unicodedata.category(character)
-        if character in "[]" or category[0] in "CZ":
+        dropped = (
+            character in "[]"
+            or category[0] in "CZ"
+            or (category == "So" and character not in _SPOKEN_SYMBOLS)
+            or character in _EMOJI_PARTS
+        )
+        if dropped:
             kept.append(" ")
         else:
             kept.append(character)

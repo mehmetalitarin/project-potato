@@ -182,7 +182,7 @@ class PotatoWindow(QMainWindow):
             approve_delay_ms: How long Approve stays disabled after the
                 dialog appears. Tests shorten it.
             approval_timeout_ms: How long the dialog waits before it denies.
-            voice: Reads replies aloud when the user turns on "Speak".
+            voice: Reads replies aloud when the user turns on "Read aloud".
         """
         super().__init__()
         self._conversation = conversation
@@ -220,7 +220,7 @@ class PotatoWindow(QMainWindow):
         self.security_button.setEnabled(gate is not None)
         self.security_button.clicked.connect(self.show_dashboard)
         # Off until the user turns it on.
-        self.speak_button = QPushButton("Speak")
+        self.speak_button = QPushButton("Read aloud")
         self.speak_button.setCheckable(True)
         self.speak_button.setEnabled(voice is not None)
         self.speak_button.toggled.connect(self._speak_toggled)

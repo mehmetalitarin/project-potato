@@ -484,3 +484,20 @@ def test_speech_can_be_stopped(
 def test_a_missing_say_is_reported_not_raised(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(processes, "SAY_COMMAND", ("/nonexistent/say", "-f", "-"))
     assert processes.start_speaking("hello") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "spoken"),
+    [
+        ("Done! \U0001f954\U0001f389", "Done!"),
+        ("Hi \U0001f44b\U0001f3fd there", "Hi there"),
+        ("\U0001f468\u200d\U0001f4bb coder", "coder"),
+        ("\u2764\ufe0f love", "love"),
+        ("press 1\ufe0f\u20e3", "press 1"),
+        ("UK \U0001f1ec\U0001f1e7", "UK"),
+        ("It's 20\u00b0 outside", "It's 20\u00b0 outside"),
+        ("5 + 3 = 8, 50% off, $4, \u00a39", "5 + 3 = 8, 50% off, $4, \u00a39"),
+    ],
+)
+def test_emojis_are_not_read_out(text: str, spoken: str) -> None:
+    assert processes.speakable(text) == spoken
